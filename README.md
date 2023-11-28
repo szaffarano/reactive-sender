@@ -1,2 +1,9 @@
 # reactive-sender
-POC using rxjs to send telemetry events
+
+POC using [rxjs](https://rxjs.dev/) to send telemetry events.
+
+```shell
+$ yarn install
+$ yarn start
+```
+
