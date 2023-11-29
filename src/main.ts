@@ -1,8 +1,10 @@
-import { ITelemetryEventsSender, } from './model';
+import {
+  ITelemetryEventsSender, TelemetryEvent,
+} from './model';
 import {TelemetryEventsSender} from './services';
 
-const main = async () => {
-
+const main =
+    async () => {
   const sender: ITelemetryEventsSender = new TelemetryEventsSender();
 
   console.log("Setup");
@@ -14,16 +16,13 @@ const main = async () => {
   console.log("Running...")
 
   // simulate background events
+  const emitter = eventEmitter();
   const id = setInterval(() => {
-    const events = [
-      {cluster_name : "cluster1", cluster_uuid : "uuid1"},
-      {cluster_name : "cluster2", cluster_uuid : "uuid2"},
-      {cluster_name : "cluster3", cluster_uuid : "uuid3"},
-      {cluster_name : "cluster4", cluster_uuid : "uuid4"},
-    ];
-    console.log(`calling sender.queueTelemetryEvents with ${events.length} events`)
-    sender.queueTelemetryEvents(events);
-  }, 500);
+    const nextEvent: TelemetryEvent = emitter.next().value!!;
+
+    console.log(`sender.queueTelemetryEvents(${nextEvent.cluster_name})`)
+    sender.queueTelemetryEvents([nextEvent]);
+  }, 100);
 
   // after a while, stop the sender
   setTimeout(() => {
@@ -35,6 +34,14 @@ const main = async () => {
 
     console.log("Done!")
   }, 2000);
+}
+
+function* eventEmitter() {
+  let lastId = 1;
+  while(true) {
+      yield {cluster_name : `cluster${lastId}`, cluster_uuid : `uuid${lastId}`},
+      lastId++;
+  }
 }
 
 main();
