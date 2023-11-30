@@ -1,46 +1,54 @@
-import {
-  ITelemetryEventsSender, TelemetryEvent,
-} from './model';
 import {TelemetryEventsSender} from './services';
+
+import {ITelemetryEventsSender, TelemetryEvent} from './model';
 
 const main =
     async () => {
-  const sender: ITelemetryEventsSender = new TelemetryEventsSender();
+  const service: ITelemetryEventsSender = new TelemetryEventsSender({
+    bufferTimeSpanMillis : 1000,
+    inflightEventsThreshold : 10,
+    maxTelemetryPayloadSize: 3,
+    retryCount: 3,
+    retryDelayMillis: 100,
+  });
 
   console.log("Setup");
-  sender.setup();
+  service.setup();
 
-  console.log("Start")
-  sender.start();
+  // send events before the service is started
+  const initial = [-3, -2, -1];
+  console.log(`service.send(${initial})`)
+  service.queueTelemetryEvents(initial);
+
+  service.start();
 
   console.log("Running...")
 
   // simulate background events
-  const emitter = eventEmitter();
+  const emitter = payloadEmitter();
   const id = setInterval(() => {
-    const nextEvent: TelemetryEvent = emitter.next().value!!;
+    const next: TelemetryEvent = emitter.next().value!!;
 
-    console.log(`sender.queueTelemetryEvents(${nextEvent.cluster_name})`)
-    sender.queueTelemetryEvents([nextEvent]);
-  }, 100);
+    console.log(`service.send(${next})`)
+    service.queueTelemetryEvents([next]);
+  }, 200);
 
   // after a while, stop the sender
   setTimeout(() => {
     console.log("Stopping")
-    sender.stop();
+    service.stop();
 
     // stop the background events task
     clearInterval(id);
 
     console.log("Done!")
-  }, 2000);
+  }, 5000);
 }
 
-function* eventEmitter() {
-  let lastId = 1;
+function* payloadEmitter(): Generator<TelemetryEvent> {
+  let lastId: TelemetryEvent = 1;
   while(true) {
-      yield {cluster_name : `cluster${lastId}`, cluster_uuid : `uuid${lastId}`},
-      lastId++;
+      yield lastId++;
   }
 }
 
