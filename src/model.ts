@@ -1,4 +1,4 @@
-export type TelemetryEvent = number;
+export type TelemetryEvent = string;
 
 export interface ITelemetryEventsSender {
   setup(): void;

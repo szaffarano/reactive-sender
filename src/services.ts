@@ -128,7 +128,7 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
     // simulate failures, to
     //    1) test retries, and
     //    2) test error handling await sleep(1000);
-    if (events.indexOf(11) != -1) {
+    if (events.find((e) => e.indexOf("11") != -1)) {
        return Promise.reject(new Failure("random error", events.length));
     }
     console.log("Events sent", events)

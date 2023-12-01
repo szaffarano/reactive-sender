@@ -16,7 +16,7 @@ const main =
   service.setup();
 
   // send events before the service is started
-  const initial = [-3, -2, -1];
+  const initial = ["pre-setup:1", "pre-setup:2", "pre-setup:3"];
   console.log(`service.send(${initial})`)
   service.queueTelemetryEvents(initial);
 
@@ -25,13 +25,23 @@ const main =
   console.log("Running...")
 
   // simulate background events
-  const emitter = payloadEmitter();
-  const id = setInterval(() => {
-    const next: TelemetryEvent = emitter.next().value!!;
+  const emitterOne = payloadEmitter("e1");
+  const emitterTwo = payloadEmitter("e2");
+
+  const intervalOne = setInterval(() => {
+    const next: TelemetryEvent = emitterOne.next().value!!;
 
     console.log(`service.send(${next})`)
     service.queueTelemetryEvents([next]);
   }, 200);
+
+  const intervalTwo = setInterval(() => {
+    const next: TelemetryEvent = emitterTwo.next().value!!;
+
+    console.log(`service.send(${next})`)
+    service.queueTelemetryEvents([next]);
+  }, 250);
+
 
   // after a while, stop the sender
   setTimeout(() => {
@@ -39,16 +49,17 @@ const main =
     service.stop();
 
     // stop the background events task
-    clearInterval(id);
+    clearInterval(intervalOne);
+    clearInterval(intervalTwo);
 
     console.log("Done!")
-  }, 5000);
+  }, 6000);
 }
 
-function* payloadEmitter(): Generator<TelemetryEvent> {
-  let lastId: TelemetryEvent = 1;
+function* payloadEmitter(name: string): Generator<TelemetryEvent> {
+  let lastId: number = 1;
   while(true) {
-      yield lastId++;
+      yield `${name}:${lastId++}`;
   }
 }
 
