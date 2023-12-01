@@ -21,7 +21,6 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
   private readonly retryDelayMillis: number;
 
   private readonly events$ = new rx.Subject<TelemetryEvent>();
-  private inflightEvents: number = 0;
 
   private readonly flushCache$ = new rx.Subject<void>();
   private readonly stopCaching$ = new rx.Subject<void>();
@@ -67,18 +66,21 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
   }
 
   public start() {
+    let inflightEventsCounter: number = 0;
+    let inflightEvents$: rx.Subject<number> =  new rx.Subject<number>();
+
     this.stopCaching$.next();
     this.events$
         .pipe(
             rxOp.switchMap((event) => {
-              // console.log("inflightEvents", this.inflightEvents, "inflightEventsThreshold", this.inflightEventsThreshold)
-              if (this.inflightEvents < this.inflightEventsThreshold) {
+              if (inflightEventsCounter < this.inflightEventsThreshold) {
                 return rx.of(event);
               }
+              console.log(`>> Dropping event ${event} (inflightEventsCounter: ${inflightEventsCounter})`)
               return rx.EMPTY;
             }),
             rxOp.tap(() => {
-              this.inflightEvents++;
+              inflightEvents$.next(1);
             }),
             rxOp.bufferTime(this.bufferTimeSpanMillis),
             rxOp.filter((events: TelemetryEvent[]) => events.length > 0),
@@ -89,7 +91,7 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
 
             rxOp.concatMap((events: TelemetryEvent[]) => this.sendEvents$(events)),
             rxOp.tap((result: Result) => {
-              this.inflightEvents -= result.events;
+              inflightEvents$.next(-result.events);
             }),
         )
         .subscribe(result => {
@@ -100,6 +102,10 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
           }
         });
     this.flushCache$.next();
+
+    inflightEvents$.subscribe((value: number) => {
+      inflightEventsCounter += value;
+    });
   }
 
   public stop() {
