@@ -1,4 +1,20 @@
-export class Chunked<T> {
+export const chunked = function<T>(list: T[], size: number): T[][] {
+  function chunk<T>(acc: Chunked<T>, value: T): Chunked<T> {
+    if (acc.current.length < size) {
+      acc.current.push(value);
+    } else {
+      acc.chunks.push(acc.current);
+      acc.current = [ value ];
+    }
+    return acc;
+  }
+
+  return list.reduce(chunk, new Chunked<T>()).flush();
+}
+
+export const sleep = (waitTimeInMs: number) => new Promise(resolve => setTimeout(resolve, waitTimeInMs));
+
+class Chunked<T> {
   chunks: T[][];
   current: T[];
 
@@ -14,18 +30,4 @@ export class Chunked<T> {
     }
     return this.chunks;
   }
-}
-
-export function chunked<T>(list: T[], size: number): T[][] {
-  function chunk<T>(acc: Chunked<T>, value: T): Chunked<T> {
-    if (acc.current.length < size) {
-      acc.current.push(value);
-    } else {
-      acc.chunks.push(acc.current);
-      acc.current = [ value ];
-    }
-    return acc;
-  }
-
-  return list.reduce(chunk, new Chunked<T>()).flush();
 }

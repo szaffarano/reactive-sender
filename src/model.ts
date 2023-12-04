@@ -7,16 +7,21 @@ export interface ITelemetryEventsSender {
   queueTelemetryEvents(events: TelemetryEvent[]): void;
 }
 
+export interface TelemetryEventSenderConfig {
+  bufferTimeSpanMillis: number;
+  inflightEventsThreshold: number;
+  maxTelemetryPayloadSize: number;
+  retryCount: number;
+  retryDelayMillis: number;
+}
+
 export interface TelemetryEventType {
   cluster_name?: string;
   cluster_uuid?: string;
-  event?: {
-    id?: string;
-    kind?: string;
-  };
+  event?: {id?: string; kind?: string;};
 }
 
-export type Result = Success | Failure;
+export type Result = Success|Failure;
 
 export class Success {
   constructor(public readonly events: number) {}
