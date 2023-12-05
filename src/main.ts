@@ -7,7 +7,7 @@ const main =
   const service: ITelemetryEventsSender = new TelemetryEventsSender({
     bufferTimeSpanMillis : 1000,
     inflightEventsThreshold : 10,
-    maxTelemetryPayloadSize: 3,
+    maxTelemetryPayloadSizeBytes: 50,
     retryCount: 3,
     retryDelayMillis: 100,
   });
@@ -44,13 +44,13 @@ const main =
 
 
   // after a while, stop the sender
-  setTimeout(() => {
+  setTimeout(async () => {
     console.log("Stopping")
-    service.stop();
-
     // stop the background events task
     clearInterval(intervalOne);
     clearInterval(intervalTwo);
+
+    await service.stop();
 
     console.log("Done!")
   }, 6000);

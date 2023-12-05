@@ -3,14 +3,14 @@ export type TelemetryEvent = string;
 export interface ITelemetryEventsSender {
   setup(): void;
   start(): void;
-  stop(): void;
+  stop(): Promise<void>;
   queueTelemetryEvents(events: TelemetryEvent[]): void;
 }
 
 export interface TelemetryEventSenderConfig {
   bufferTimeSpanMillis: number;
   inflightEventsThreshold: number;
-  maxTelemetryPayloadSize: number;
+  maxTelemetryPayloadSizeBytes: number;
   retryCount: number;
   retryDelayMillis: number;
 }

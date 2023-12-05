@@ -9,11 +9,13 @@ import {
   TelemetryEventSenderConfig
 } from './model';
 import * as utils from './utils'
+import axios from 'axios';
+
 
 export class TelemetryEventsSender implements ITelemetryEventsSender {
   private readonly bufferTimeSpanMillis: number;
   private readonly inflightEventsThreshold: number;
-  private readonly maxTelemetryPayloadSize: number;
+  private readonly maxTelemetryPayloadSizeBytes: number;
   private readonly retryCount: number;
   private readonly retryDelayMillis: number;
 
@@ -23,9 +25,10 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
   private readonly stopCaching$ = new rx.Subject<void>();
 
   private readonly stop$ = new rx.Subject<void>();
+  private readonly finished$ = new rx.Subject<void>();
 
   /**
-    * @param bufferTimeSpanMillis How long to buffer events before sending them
+    * @param bufferTimeSpanMillis How long to buffer vents before sending them
     * @param inflightEventsThreshold How many events can be inflight at the same time
     * @param maxTelemetryPayloadSize Maximum size of the payload sent to the telemetry server
     * @param retryCount Number of retries before propagating the error
@@ -34,7 +37,7 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
   constructor(config: TelemetryEventSenderConfig) {
     this.bufferTimeSpanMillis = config.bufferTimeSpanMillis;
     this.inflightEventsThreshold = config.inflightEventsThreshold;
-    this.maxTelemetryPayloadSize = config.maxTelemetryPayloadSize;
+    this.maxTelemetryPayloadSizeBytes = config.maxTelemetryPayloadSizeBytes;
     this.retryCount = config.retryCount;
     this.retryDelayMillis = config.retryDelayMillis;
   }
@@ -81,57 +84,83 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
               console.log(`>> Dropping event ${event} (inflightEventsCounter: ${inflightEventsCounter})`)
               return rx.EMPTY;
             }),
+
+            // update inflight events counter
             rxOp.tap(() => inflightEvents$.next(1)),
+
             rxOp.bufferTime(this.bufferTimeSpanMillis),
             rxOp.filter(events => events.length > 0),
             rxOp.takeUntil(this.stop$),
 
-            rxOp.map(buff => utils.chunked(buff, this.maxTelemetryPayloadSize)),
+            // convert to JSON
+            rxOp.map(events =>  events.map(event => JSON.stringify(event))),
+
+            // chunk by size
+            rxOp.map(buff => utils.chunkedBy(buff, this.maxTelemetryPayloadSizeBytes, (json) => {
+              return json.length;
+            })),
             rxOp.concatAll(),
 
+            // send events to the telemetry server
             rxOp.concatMap(events => this.sendEvents$(events)),
+
+            // update inflight events counter
             rxOp.tap(result => inflightEvents$.next(-result.events)),
          )
-        .subscribe(result => {
-          if (result instanceof Success) {
-            console.log(`Success! ${result.events} events sent`);
-          } else {
-            console.log(`Failure! unable to send ${result.events} events`);
-          }
-        });
+            .subscribe({
+              next: result => {
+                if (result instanceof Success) {
+                  console.log(`Success! ${result.events} events sent`);
+                } else {
+                  console.log(`Failure! unable to send ${result} events`);
+                }
+              },
+              error: err => console.error(`Unexpected error: ${err}`, err),
+              complete: () => {
+                console.log("Shutting down");
+                this.finished$.next();
+              },
+            });
     this.flushCache$.next();
 
     inflightEvents$.subscribe(value => inflightEventsCounter += value);
   }
 
-  public stop() {
+  public async stop() {
     this.events$.complete();
     this.stop$.next();
+    await rx.firstValueFrom(this.finished$)
   }
 
-  private sendEvents$(events: TelemetryEvent[]): rx.Observable<Result> {
+  private sendEvents$(events: string[]): rx.Observable<Result> {
     return rx.defer(() => this.sendEvents(events))
-        .pipe(rxOp.retry({
-          count : this.retryCount,
-          delay : this.retryDelayMillis,
-        }),
-              rxOp.catchError((error: Failure) => { return rx.of(error); }));
+        .pipe(
+          rxOp.retry({
+            count : this.retryCount,
+            delay : this.retryDelayMillis,
+          }),
+          rxOp.catchError(error => rx.of(error))
+        );
   }
 
   // here we should post the data to the telemetry server
-  private async sendEvents(events: TelemetryEvent[]): Promise<Result> {
-    // simulate latency to test whether the inflight events are discarded if
-    // they are above inflightEventsThreshold
-    await utils.sleep(200);
-
-    // simulate failures, to
-    //    1) test retries, and
-    //    2) test error handling await sleep(1000);
-    if (events.find((e) => e.indexOf("11") != -1)) {
-      return Promise.reject(new Failure("random error", events.length));
+  private async sendEvents(events: string[]): Promise<Result> {
+    try {
+      const body = events.join('\n');
+      return axios.post('https://jsonplaceholder.typicode.com/posts', body, {})
+        .then((r) => {
+          if (r.status < 400) {
+            return new Success(events.length);
+          } else {
+            return new Failure(`Got ${r.status} posting events`, events.length);
+          }
+        }).catch((err) => {
+          console.error(`Error posting events: ${err}`);
+          return new Failure(`Error posting events: ${err}`, events.length);
+        });
+    } catch (err: any) {
+       return new Failure(`Unexpected error posting events: ${err}`, events.length);
     }
-    console.log("Events sent", events)
-    return Promise.resolve(new Success(events.length));
   };
 
   public queueTelemetryEvents(events: TelemetryEvent[]): void {

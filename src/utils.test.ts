@@ -1,4 +1,4 @@
-import {chunked} from './utils'
+import {chunked, chunkedBy} from './utils'
 
 describe('utils.chunked', () => {
     test('should chunk simple case', async () => {
@@ -36,4 +36,37 @@ describe('utils.chunked', () => {
       const output = chunked(input, 10);
       expect(output).toEqual([ [ 1 ] ]);
     })
+})
+
+describe('utils.chunkedBy', () => {
+    test('should chunk simple case', async () => {
+      const input = [ "aa", "b", "ccc", "ddd" ];
+      const output = chunkedBy(input, 3, (v) => v.length);
+      expect(output).toEqual([ ["aa", "b"], ["ccc"], ["ddd"] ]);
+    })
+
+    test('should chunk with remainder', async () => {
+      const input = ["aaa", "b"];
+      const output = chunkedBy(input, 3, (v) => v.length);
+      expect(output).toEqual([ ["aaa"], ["b"] ]);
+    })
+
+    test('should chunk with empty list', async () => {
+      const input: string[] = [];
+      const output = chunkedBy(input, 3, (v) => v.length);
+      expect(output).toEqual([]);
+    })
+
+    test('should chunk with single element smaller than max weight', async () => {
+      const input = [ "aa" ];
+      const output = chunkedBy(input, 3, (v) => v.length);
+      expect(output).toEqual([ [ "aa" ] ]);
+    })
+
+    test('should chunk with single element bigger than max weight', async () => {
+      const input = [ "aaaa" ];
+      const output = chunkedBy(input, 3, (v) => v.length);
+      expect(output).toEqual([ [ "aaaa" ] ]);
+    })
+
 })
