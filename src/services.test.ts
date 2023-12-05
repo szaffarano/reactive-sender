@@ -17,13 +17,13 @@ describe("services.TelemetryEventsSender", () => {
   beforeEach(() => {
     jest.useFakeTimers();
     mockedAxiosPost.mockClear();
+    mockedAxiosPost.mockResolvedValue({status : 201});
   });
 
   afterEach(() => { jest.useRealTimers(); });
 
   it('does not lose data during startup', async () => {
     const service = new TelemetryEventsSender(defaultServiceConfig);
-    mockedAxiosPost.mockResolvedValue({status : 201});
 
     service.setup();
 
@@ -48,7 +48,6 @@ describe("services.TelemetryEventsSender", () => {
       ...defaultServiceConfig,
       maxTelemetryPayloadSizeBytes : 10,
     });
-    mockedAxiosPost.mockResolvedValue({status : 201});
 
     service.setup();
     service.start();
@@ -81,8 +80,6 @@ describe("services.TelemetryEventsSender", () => {
       ...defaultServiceConfig,
       maxTelemetryPayloadSizeBytes : 3,
     });
-    mockedAxiosPost.mockResolvedValue({status : 201});
-
     service.setup();
     service.start();
 
@@ -110,14 +107,12 @@ describe("services.TelemetryEventsSender", () => {
     })
   });
 
-
   it('buffer for a specific time period', async () => {
     const bufferTimeSpanMillis = 2000;
     const service = new TelemetryEventsSender({
       ...defaultServiceConfig,
       bufferTimeSpanMillis : bufferTimeSpanMillis,
     });
-    mockedAxiosPost.mockResolvedValue({status : 201});
 
     service.setup();
     service.start();
@@ -143,6 +138,88 @@ describe("services.TelemetryEventsSender", () => {
     expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
   });
 
+  it('retries when the backend fails', async () => {
+    const service = new TelemetryEventsSender({
+      ...defaultServiceConfig,
+      bufferTimeSpanMillis: 3,
+    });
+
+    mockedAxiosPost
+      .mockReturnValueOnce(Promise.resolve({status : 500}))
+      .mockReturnValueOnce(Promise.resolve({status : 500}))
+      .mockReturnValue(Promise.resolve({status : 201}))
+
+    service.setup();
+    service.start();
+
+    // send some events
+    service.queueTelemetryEvents([ "a"]);
+
+    // advance time by more than the buffer time span
+    await jest.advanceTimersByTimeAsync(defaultServiceConfig.bufferTimeSpanMillis * 1.20);
+
+    // check that the events are sent
+    expect(mockedAxiosPost).toHaveBeenCalledTimes(defaultServiceConfig.retryCount);
+
+    service.stop();
+
+    // check that no more events are sent
+    expect(mockedAxiosPost).toHaveBeenCalledTimes(defaultServiceConfig.retryCount);
+  });
+
+
+  it('retries runtime errors', async () => {
+    const service = new TelemetryEventsSender({
+      ...defaultServiceConfig,
+      bufferTimeSpanMillis: 3,
+    });
+
+    mockedAxiosPost
+      .mockImplementationOnce(() => { throw new Error("runtime error"); })
+      .mockImplementationOnce(() => { throw new Error("runtime error"); })
+      .mockReturnValue(Promise.resolve({status : 201}))
+
+    service.setup();
+    service.start();
+
+    // send some events
+    service.queueTelemetryEvents([ "a"]);
+
+    // advance time by more than the buffer time span
+    await jest.advanceTimersByTimeAsync(defaultServiceConfig.bufferTimeSpanMillis * 1.20);
+
+    // check that the events are sent
+    expect(mockedAxiosPost).toHaveBeenCalledTimes(defaultServiceConfig.retryCount);
+
+    service.stop();
+
+    // check that no more events are sent
+    expect(mockedAxiosPost).toHaveBeenCalledTimes(defaultServiceConfig.retryCount);
+  });
+
+  it('only retries `retryCount` times', async () => {
+    const service = new TelemetryEventsSender(defaultServiceConfig);
+
+    mockedAxiosPost.mockReturnValue(Promise.resolve({status : 500}))
+
+    service.setup();
+    service.start();
+
+    // send some events
+    service.queueTelemetryEvents([ "a"]);
+
+    // advance time by more than the buffer time span
+    await jest.advanceTimersByTimeAsync(defaultServiceConfig.bufferTimeSpanMillis * 1.20);
+
+    // check that the events are sent
+    expect(mockedAxiosPost).toHaveBeenCalledTimes(defaultServiceConfig.retryCount + 1);
+
+    service.stop();
+
+    // check that no more events are sent
+    expect(mockedAxiosPost).toHaveBeenCalledTimes(defaultServiceConfig.retryCount + 1);
+  });
+
   it('drop events above inflightEventsThreshold', async () => {
     const inflightEventsThreshold = 3;
     const bufferTimeSpanMillis = 2000;
@@ -151,7 +228,6 @@ describe("services.TelemetryEventsSender", () => {
       inflightEventsThreshold : inflightEventsThreshold,
       bufferTimeSpanMillis : bufferTimeSpanMillis,
     });
-    mockedAxiosPost.mockResolvedValue({status : 201});
 
     service.setup();
     service.start();
@@ -189,7 +265,6 @@ describe("services.TelemetryEventsSender", () => {
       inflightEventsThreshold : inflightEventsThreshold,
       bufferTimeSpanMillis : bufferTimeSpanMillis,
     });
-    mockedAxiosPost.mockResolvedValue({status : 201});
 
     service.setup();
     service.start();

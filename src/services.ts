@@ -117,7 +117,7 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
               },
               error: err => console.error(`Unexpected error: ${err}`, err),
               complete: () => {
-                console.log("Shutting down");
+                console.log(`Shutting down (${inflightEventsCounter} events still inflight)`);
                 this.finished$.next();
               },
             });
@@ -145,6 +145,7 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
 
   // here we should post the data to the telemetry server
   private async sendEvents(events: string[]): Promise<Result> {
+    console.log("sending events")
     try {
       const body = events.join('\n');
       return axios.post('https://jsonplaceholder.typicode.com/posts', body, {})
@@ -152,14 +153,13 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
           if (r.status < 400) {
             return new Success(events.length);
           } else {
-            return new Failure(`Got ${r.status} posting events`, events.length);
+            throw new Failure(`Got ${r.status}`, events.length);
           }
         }).catch((err) => {
-          console.error(`Error posting events: ${err}`);
-          return new Failure(`Error posting events: ${err}`, events.length);
+          throw new Failure(`Error posting events: ${err}`, events.length);
         });
     } catch (err: any) {
-       return new Failure(`Unexpected error posting events: ${err}`, events.length);
+       throw new Failure(`Unexpected error posting events: ${err}`, events.length);
     }
   };
 
