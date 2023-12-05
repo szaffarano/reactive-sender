@@ -76,6 +76,41 @@ describe("services.TelemetryEventsSender", () => {
     })
   });
 
+  it('chunks events by size, even if one event is bigger than `maxTelemetryPayloadSizeBytes`', async () => {
+    const service = new TelemetryEventsSender({
+      ...defaultServiceConfig,
+      maxTelemetryPayloadSizeBytes : 3,
+    });
+    mockedAxiosPost.mockResolvedValue({status : 201});
+
+    service.setup();
+    service.start();
+
+    // at most 10 bytes per payload (after serialized to JSON): it should send
+    // two posts: ["aaaaa", "b"] and ["c"]
+    service.queueTelemetryEvents([ "aaaaa", "b", "c" ]);
+    const expectedBodies =
+        [
+          `"aaaaa"`,
+          `"b"`,
+          `"c"`,
+        ]
+
+        await service.stop();
+
+    expect(mockedAxiosPost).toHaveBeenCalledTimes(3);
+
+    expectedBodies.forEach(expectedBody => {
+      expect(mockedAxiosPost)
+          .toHaveBeenCalledWith(
+              expect.anything(),
+              expectedBody,
+              expect.anything(),
+          );
+    })
+  });
+
+
   it('buffer for a specific time period', async () => {
     const bufferTimeSpanMillis = 2000;
     const service = new TelemetryEventsSender({
@@ -90,16 +125,19 @@ describe("services.TelemetryEventsSender", () => {
     // send some events
     service.queueTelemetryEvents([ "a", "b", "c" ]);
 
+    // advance time by less than the buffer time span
+    await jest.advanceTimersByTimeAsync(bufferTimeSpanMillis * 0.20);
+
     // check that no events are sent before the buffer time span
     expect(mockedAxiosPost).toHaveBeenCalledTimes(0);
 
     // advance time by more than the buffer time span
-    jest.advanceTimersByTime(bufferTimeSpanMillis * 1.20);
+    await jest.advanceTimersByTimeAsync(bufferTimeSpanMillis * 1.20);
 
     // check that the events are sent
     expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
 
-    await service.stop();
+    service.stop();
 
     // check that no more events are sent
     expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
