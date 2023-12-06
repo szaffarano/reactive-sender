@@ -15,7 +15,7 @@ const defaultServiceConfig = {
 
 describe("services.TelemetryEventsSender", () => {
   beforeEach(() => {
-    jest.useFakeTimers();
+    jest.useFakeTimers({advanceTimers: true});
     mockedAxiosPost.mockClear();
     mockedAxiosPost.mockResolvedValue({status : 201});
   });
@@ -61,7 +61,7 @@ describe("services.TelemetryEventsSender", () => {
           `"c"`,
         ]
 
-        await service.stop();
+    await service.stop();
 
     expect(mockedAxiosPost).toHaveBeenCalledTimes(2);
 
@@ -93,7 +93,7 @@ describe("services.TelemetryEventsSender", () => {
           `"c"`,
         ]
 
-        await service.stop();
+    await service.stop();
 
     expect(mockedAxiosPost).toHaveBeenCalledTimes(3);
 
@@ -132,7 +132,7 @@ describe("services.TelemetryEventsSender", () => {
     // check that the events are sent
     expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
 
-    service.stop();
+    await service.stop();
 
     // check that no more events are sent
     expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
@@ -161,12 +161,11 @@ describe("services.TelemetryEventsSender", () => {
     // check that the events are sent
     expect(mockedAxiosPost).toHaveBeenCalledTimes(defaultServiceConfig.retryCount);
 
-    service.stop();
+    await service.stop();
 
     // check that no more events are sent
     expect(mockedAxiosPost).toHaveBeenCalledTimes(defaultServiceConfig.retryCount);
   });
-
 
   it('retries runtime errors', async () => {
     const service = new TelemetryEventsSender({
@@ -191,7 +190,7 @@ describe("services.TelemetryEventsSender", () => {
     // check that the events are sent
     expect(mockedAxiosPost).toHaveBeenCalledTimes(defaultServiceConfig.retryCount);
 
-    service.stop();
+    await service.stop();
 
     // check that no more events are sent
     expect(mockedAxiosPost).toHaveBeenCalledTimes(defaultServiceConfig.retryCount);
@@ -214,7 +213,7 @@ describe("services.TelemetryEventsSender", () => {
     // check that the events are sent
     expect(mockedAxiosPost).toHaveBeenCalledTimes(defaultServiceConfig.retryCount + 1);
 
-    service.stop();
+    await service.stop();
 
     // check that no more events are sent
     expect(mockedAxiosPost).toHaveBeenCalledTimes(defaultServiceConfig.retryCount + 1);
@@ -250,7 +249,7 @@ describe("services.TelemetryEventsSender", () => {
             expect.anything(),
         );
 
-    service.stop();
+    await service.stop();
 
     // check that no more events are sent
     expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
@@ -293,7 +292,7 @@ describe("services.TelemetryEventsSender", () => {
           );
     }
 
-    service.stop();
+    await service.stop();
 
     // check that no more events are sent
     expect(mockedAxiosPost).toHaveBeenCalledTimes(batches);

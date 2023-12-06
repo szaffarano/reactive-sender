@@ -74,6 +74,8 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
     let inflightEventsCounter: number = 0;
     let inflightEvents$: rx.Subject<number> = new rx.Subject<number>();
 
+    inflightEvents$.subscribe(value => inflightEventsCounter += value);
+
     this.stopCaching$.next();
     this.events$
         .pipe(
@@ -122,14 +124,13 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
               },
             });
     this.flushCache$.next();
-
-    inflightEvents$.subscribe(value => inflightEventsCounter += value);
   }
 
-  public async stop() {
+  public stop() {
+    const finishPromise = rx.firstValueFrom(this.finished$)
     this.events$.complete();
     this.stop$.next();
-    await rx.firstValueFrom(this.finished$)
+    return finishPromise;
   }
 
   private sendEvents$(events: string[]): rx.Observable<Result> {
@@ -145,7 +146,6 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
 
   // here we should post the data to the telemetry server
   private async sendEvents(events: string[]): Promise<Result> {
-    console.log("sending events")
     try {
       const body = events.join('\n');
       return axios.post('https://jsonplaceholder.typicode.com/posts', body, {})
