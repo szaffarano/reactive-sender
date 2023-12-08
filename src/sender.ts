@@ -10,6 +10,7 @@ import {
 } from './sender.types';
 import { Channel } from './telemetry.types';
 import * as utils from './utils';
+import { CachedSubject } from './rxjs.utils';
 
 export class TelemetryEventsSender implements ITelemetryEventsSender {
   private readonly maxTelemetryPayloadSizeBytes: number;
@@ -19,11 +20,9 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
 
   private readonly events$ = new rx.Subject<Event>();
 
-  private readonly flushCache$ = new rx.Subject<void>();
-  private readonly stopCaching$ = new rx.Subject<void>();
-
   private readonly stop$ = new rx.Subject<void>();
   private readonly finished$ = new rx.Subject<void>();
+  private cache: CachedSubject | undefined;
 
   constructor(config: TelemetryEventSenderConfig) {
     this.maxTelemetryPayloadSizeBytes = config.maxTelemetryPayloadSizeBytes;
@@ -33,43 +32,19 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
   }
 
   public setup(): void {
-    // Cache the incoming events that are sent during the timeframe between
-    // `service.setup()` and `service.start()`, otherwise, they would be lost
-    const cache$ = new rx.ReplaySubject<any>();
-    const storingCache$ = new rx.BehaviorSubject<boolean>(true);
-
-    // 1. sends incoming events to the cache$ only when the service wasn't
-    // started (i.e. storingCache$ = true)
-    storingCache$
-      .pipe(
-        rx.distinctUntilChanged(),
-        rx.switchMap((isCaching) => (isCaching ? this.events$ : rx.EMPTY)),
-        rx.takeUntil(rx.merge(this.stopCaching$, this.stop$))
-      )
-      .subscribe((data) => cache$.next(data));
-
-    // 2. when flushCache is triggered, stop caching events and send the cached
-    // ones to the real flow (i.e. `events$`).
-    this.flushCache$
-      .pipe(
-        rx.exhaustMap(() => cache$),
-        rx.takeUntil(this.stop$)
-      )
-      .subscribe((data) => {
-        storingCache$.next(false);
-        this.events$.next(data);
-      });
+    this.cache = new CachedSubject(this.events$, this.stop$);
   }
 
   public start() {
-    this.stopCaching$.next();
+    this.cache?.stop();
+
     this.events$
       .pipe(
         rx.connect((shared$) => {
           return rx.merge(
             this._queue(shared$, this.queuesConfig.high, Priority.HIGH),
             this._queue(shared$, this.queuesConfig.medium, Priority.MEDIUM),
-            this._queue(shared$, this.queuesConfig.low, Priority.LOW)
+            this._queue(shared$, this.queuesConfig.low, Priority.LOW),
           );
         })
       )
@@ -87,7 +62,8 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
           this.finished$.next();
         },
       });
-    this.flushCache$.next();
+
+    this.cache?.flush();
   }
 
   public stop() {
@@ -211,7 +187,7 @@ class Chunk {
     public channel: Channel,
     public payloads: string[],
     public priority: Priority
-  ) { }
+  ) {  }
 }
 
 class Event {
@@ -219,18 +195,18 @@ class Event {
     public channel: Channel,
     public payload: any,
     public priority: Priority = Priority.LOW
-  ) { }
+  ) {  }
 }
 
 type Result = Success | Failure;
 
 class Success {
-  constructor(public readonly events: number) { }
+  constructor(public readonly events: number) {  }
 }
 
 class Failure {
   constructor(
     public readonly reason: string,
     public readonly events: number
-  ) { }
+  ) {  }
 }
