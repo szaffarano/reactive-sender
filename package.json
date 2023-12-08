@@ -5,7 +5,7 @@
   "main": "src/index.ts",
   "scripts": {
     "start": "ts-node src/main.ts",
-    "format": "yarn prettier . --write",
+    "fmt": "yarn prettier . --write",
     "test": "jest --rootDir ./src",
     "build": "tsc --outDir dist"
   },

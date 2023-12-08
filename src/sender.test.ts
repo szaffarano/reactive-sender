@@ -14,17 +14,14 @@ const defaultServiceConfig = {
   retryDelayMillis: 100,
   queuesConfig: {
     high: {
-      priority: Priority.HIGH,
       bufferTimeSpanMillis: 500,
       inflightEventsThreshold: 1000,
     },
     medium: {
-      priority: Priority.MEDIUM,
       bufferTimeSpanMillis: 1000,
       inflightEventsThreshold: 500,
     },
     low: {
-      priority: Priority.LOW,
       bufferTimeSpanMillis: 10000,
       inflightEventsThreshold: 10,
     },
@@ -98,8 +95,8 @@ describe('services.TelemetryEventsSender', () => {
       service.setup();
       service.start();
 
-      // at most 10 bytes per payload (after serialized to JSON): it should send
-      // two posts: ["aaaaa", "b"] and ["c"]
+      // at most 10 bytes per payload (after serialized to JSON): it should
+      // send two posts: ["aaaaa", "b"] and ["c"]
       service.send(Channel.TIMELINE, Priority.LOW, ['aaaaa', 'b', 'c']);
       const expectedBodies = [`"aaaaa"`, `"b"`, `"c"`];
 
@@ -118,8 +115,8 @@ describe('services.TelemetryEventsSender', () => {
 
     it('buffer for a specific time period', async () => {
       const bufferTimeSpanMillis = 2000;
-      const config = structuredClone(defaultServiceConfig)
-      config.queuesConfig.low.bufferTimeSpanMillis = bufferTimeSpanMillis
+      const config = structuredClone(defaultServiceConfig);
+      config.queuesConfig.low.bufferTimeSpanMillis = bufferTimeSpanMillis;
       const service = new TelemetryEventsSender(config);
 
       service.setup();
@@ -148,8 +145,8 @@ describe('services.TelemetryEventsSender', () => {
 
     it('retries when the backend fails', async () => {
       const bufferTimeSpanMillis = 3;
-      const config = structuredClone(defaultServiceConfig)
-      config.queuesConfig.low.bufferTimeSpanMillis = bufferTimeSpanMillis
+      const config = structuredClone(defaultServiceConfig);
+      config.queuesConfig.low.bufferTimeSpanMillis = bufferTimeSpanMillis;
       const service = new TelemetryEventsSender(config);
 
       mockedAxiosPost
@@ -179,8 +176,8 @@ describe('services.TelemetryEventsSender', () => {
 
     it('retries runtime errors', async () => {
       const bufferTimeSpanMillis = 3;
-      const config = structuredClone(defaultServiceConfig)
-      config.queuesConfig.low.bufferTimeSpanMillis = bufferTimeSpanMillis
+      const config = structuredClone(defaultServiceConfig);
+      config.queuesConfig.low.bufferTimeSpanMillis = bufferTimeSpanMillis;
       const service = new TelemetryEventsSender(config);
 
       mockedAxiosPost
@@ -224,7 +221,9 @@ describe('services.TelemetryEventsSender', () => {
       service.send(Channel.TIMELINE, Priority.LOW, ['a']);
 
       // advance time by more than the buffer time span
-      await jest.advanceTimersByTimeAsync(defaultServiceConfig.queuesConfig.low.bufferTimeSpanMillis * 1.2);
+      await jest.advanceTimersByTimeAsync(
+        defaultServiceConfig.queuesConfig.low.bufferTimeSpanMillis * 1.2
+      );
 
       // check that the events are sent
       expect(mockedAxiosPost).toHaveBeenCalledTimes(defaultServiceConfig.retryCount + 1);
@@ -238,7 +237,7 @@ describe('services.TelemetryEventsSender', () => {
     it('drop events above inflightEventsThreshold', async () => {
       const inflightEventsThreshold = 3;
       const bufferTimeSpanMillis = 2000;
-      const config = structuredClone(defaultServiceConfig)
+      const config = structuredClone(defaultServiceConfig);
       config.queuesConfig.low.bufferTimeSpanMillis = bufferTimeSpanMillis;
       config.queuesConfig.low.inflightEventsThreshold = inflightEventsThreshold;
       const service = new TelemetryEventsSender(config);
@@ -273,7 +272,7 @@ describe('services.TelemetryEventsSender', () => {
       const batches = 3;
       const inflightEventsThreshold = 3;
       const bufferTimeSpanMillis = 2000;
-      const config = structuredClone(defaultServiceConfig)
+      const config = structuredClone(defaultServiceConfig);
       config.queuesConfig.low.inflightEventsThreshold = inflightEventsThreshold;
       config.queuesConfig.low.bufferTimeSpanMillis = bufferTimeSpanMillis;
       const service = new TelemetryEventsSender(config);

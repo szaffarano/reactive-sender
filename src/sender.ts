@@ -211,7 +211,7 @@ class Chunk {
     public channel: Channel,
     public payloads: string[],
     public priority: Priority
-  ) {}
+  ) { }
 }
 
 class Event {
@@ -219,18 +219,18 @@ class Event {
     public channel: Channel,
     public payload: any,
     public priority: Priority = Priority.LOW
-  ) {}
+  ) { }
 }
 
 type Result = Success | Failure;
 
 class Success {
-  constructor(public readonly events: number) {}
+  constructor(public readonly events: number) { }
 }
 
 class Failure {
   constructor(
     public readonly reason: string,
     public readonly events: number
-  ) {}
+  ) { }
 }
