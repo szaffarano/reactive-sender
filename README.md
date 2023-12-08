@@ -6,4 +6,3 @@ POC using [rxjs](https://rxjs.dev/) to send telemetry events.
 $ yarn install
 $ yarn start
 ```
-

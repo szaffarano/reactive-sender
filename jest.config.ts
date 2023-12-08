@@ -1,9 +1,9 @@
-import type {Config} from 'jest';
+import type { Config } from 'jest';
 
 const config: Config = {
   collectCoverage: true,
-  coverageDirectory: "coverage",
-  coverageProvider: "v8",
+  coverageDirectory: 'coverage',
+  coverageProvider: 'v8',
   preset: 'ts-jest',
 };
 
