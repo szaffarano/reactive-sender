@@ -7,23 +7,20 @@ const main = async () => {
     maxTelemetryPayloadSizeBytes: 500,
     retryCount: 3,
     retryDelayMillis: 100,
-    queuesConfig: [
-      {
-        priority: Priority.HIGH,
+    queuesConfig: {
+      high: {
         bufferTimeSpanMillis: 250,
         inflightEventsThreshold: 1000,
       },
-      {
-        priority: Priority.MEDIUM,
+      medium: {
         bufferTimeSpanMillis: 1000,
         inflightEventsThreshold: 500,
       },
-      {
-        priority: Priority.LOW,
+      low: {
         bufferTimeSpanMillis: 2000,
         inflightEventsThreshold: 40,
       },
-    ],
+    },
   });
 
   console.log('Setup');

@@ -6,7 +6,7 @@
   "scripts": {
     "start": "ts-node src/main.ts",
     "format": "yarn prettier . --write",
-    "test": "jest",
+    "test": "jest --rootDir ./src",
     "build": "tsc --outDir dist"
   },
   "keywords": [],

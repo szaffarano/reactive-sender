@@ -5,6 +5,7 @@ import {
   ITelemetryEventsSender,
   Priority,
   SenderQueueConfig,
+  SenderQueuesConfig,
   TelemetryEventSenderConfig,
 } from './sender.types';
 import { Channel } from './telemetry.types';
@@ -14,7 +15,7 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
   private readonly maxTelemetryPayloadSizeBytes: number;
   private readonly retryCount: number;
   private readonly retryDelayMillis: number;
-  private readonly queuesConfig: SenderQueueConfig[];
+  private readonly queuesConfig: SenderQueuesConfig;
 
   private readonly events$ = new rx.Subject<Event>();
 
@@ -65,8 +66,11 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
     this.events$
       .pipe(
         rx.connect((shared$) => {
-          const queues$ = this.queuesConfig.map((config) => this._queue(shared$, config));
-          return rx.merge(...queues$);
+          return rx.merge(
+            this._queue(shared$, this.queuesConfig.high, Priority.HIGH),
+            this._queue(shared$, this.queuesConfig.medium, Priority.MEDIUM),
+            this._queue(shared$, this.queuesConfig.low, Priority.LOW)
+          );
         })
       )
       .subscribe({
@@ -99,7 +103,11 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
     });
   }
 
-  private _queue(upstream$: rx.Observable<any>, config: SenderQueueConfig): rx.Observable<Chunk> {
+  private _queue(
+    upstream$: rx.Observable<any>,
+    config: SenderQueueConfig,
+    priority: Priority
+  ): rx.Observable<Chunk> {
     let inflightEventsCounter: number = 0;
     let inflightEvents$: rx.Subject<number> = new rx.Subject<number>();
 
@@ -118,7 +126,7 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
       rx.tap(() => inflightEvents$.next(1)),
 
       // only take events with the expected priority
-      rx.filter((event) => event.priority === config.priority),
+      rx.filter((event) => event.priority === priority),
 
       // buffer events for a given time ...
       rx.bufferTime(config.bufferTimeSpanMillis),
@@ -149,7 +157,7 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
         [...events].flatMap(([channel, values]) =>
           utils
             .chunkedBy(values, this.maxTelemetryPayloadSizeBytes, (payload) => payload.length)
-            .map((chunk) => new Chunk(channel, chunk, config.priority))
+            .map((chunk) => new Chunk(channel, chunk, priority))
         )
       ),
       rx.concatAll(),

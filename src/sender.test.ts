@@ -7,27 +7,28 @@ import { Priority } from './sender.types';
 import { Channel } from './telemetry.types';
 
 const mockedAxiosPost = axios.post as jest.MockedFunction<typeof axios.post>;
-const queueHigh = {
-  priority: Priority.HIGH,
-  bufferTimeSpanMillis: 500,
-  inflightEventsThreshold: 1000,
-};
-const queueMedium = {
-  priority: Priority.MEDIUM,
-  bufferTimeSpanMillis: 1000,
-  inflightEventsThreshold: 500,
-};
-const queueLow = {
-  priority: Priority.LOW,
-  bufferTimeSpanMillis: 10000,
-  inflightEventsThreshold: 10,
-};
 
 const defaultServiceConfig = {
   maxTelemetryPayloadSizeBytes: 50,
   retryCount: 3,
   retryDelayMillis: 100,
-  queuesConfig: [queueLow, queueMedium, queueHigh],
+  queuesConfig: {
+    high: {
+      priority: Priority.HIGH,
+      bufferTimeSpanMillis: 500,
+      inflightEventsThreshold: 1000,
+    },
+    medium: {
+      priority: Priority.MEDIUM,
+      bufferTimeSpanMillis: 1000,
+      inflightEventsThreshold: 500,
+    },
+    low: {
+      priority: Priority.LOW,
+      bufferTimeSpanMillis: 10000,
+      inflightEventsThreshold: 10,
+    },
+  },
 };
 
 describe('services.TelemetryEventsSender', () => {
@@ -117,15 +118,9 @@ describe('services.TelemetryEventsSender', () => {
 
     it('buffer for a specific time period', async () => {
       const bufferTimeSpanMillis = 2000;
-      const service = new TelemetryEventsSender({
-        ...defaultServiceConfig,
-        queuesConfig: [
-          {
-            ...queueLow,
-            bufferTimeSpanMillis: bufferTimeSpanMillis,
-          },
-        ],
-      });
+      const config = structuredClone(defaultServiceConfig)
+      config.queuesConfig.low.bufferTimeSpanMillis = bufferTimeSpanMillis
+      const service = new TelemetryEventsSender(config);
 
       service.setup();
       service.start();
@@ -153,15 +148,9 @@ describe('services.TelemetryEventsSender', () => {
 
     it('retries when the backend fails', async () => {
       const bufferTimeSpanMillis = 3;
-      const service = new TelemetryEventsSender({
-        ...defaultServiceConfig,
-        queuesConfig: [
-          {
-            ...queueLow,
-            bufferTimeSpanMillis: bufferTimeSpanMillis,
-          },
-        ],
-      });
+      const config = structuredClone(defaultServiceConfig)
+      config.queuesConfig.low.bufferTimeSpanMillis = bufferTimeSpanMillis
+      const service = new TelemetryEventsSender(config);
 
       mockedAxiosPost
         .mockReturnValueOnce(Promise.resolve({ status: 500 }))
@@ -190,15 +179,9 @@ describe('services.TelemetryEventsSender', () => {
 
     it('retries runtime errors', async () => {
       const bufferTimeSpanMillis = 3;
-      const service = new TelemetryEventsSender({
-        ...defaultServiceConfig,
-        queuesConfig: [
-          {
-            ...queueLow,
-            bufferTimeSpanMillis: bufferTimeSpanMillis,
-          },
-        ],
-      });
+      const config = structuredClone(defaultServiceConfig)
+      config.queuesConfig.low.bufferTimeSpanMillis = bufferTimeSpanMillis
+      const service = new TelemetryEventsSender(config);
 
       mockedAxiosPost
         .mockImplementationOnce(() => {
@@ -241,7 +224,7 @@ describe('services.TelemetryEventsSender', () => {
       service.send(Channel.TIMELINE, Priority.LOW, ['a']);
 
       // advance time by more than the buffer time span
-      await jest.advanceTimersByTimeAsync(queueLow.bufferTimeSpanMillis * 1.2);
+      await jest.advanceTimersByTimeAsync(defaultServiceConfig.queuesConfig.low.bufferTimeSpanMillis * 1.2);
 
       // check that the events are sent
       expect(mockedAxiosPost).toHaveBeenCalledTimes(defaultServiceConfig.retryCount + 1);
@@ -255,16 +238,10 @@ describe('services.TelemetryEventsSender', () => {
     it('drop events above inflightEventsThreshold', async () => {
       const inflightEventsThreshold = 3;
       const bufferTimeSpanMillis = 2000;
-      const service = new TelemetryEventsSender({
-        ...defaultServiceConfig,
-        queuesConfig: [
-          {
-            ...queueLow,
-            bufferTimeSpanMillis: bufferTimeSpanMillis,
-            inflightEventsThreshold: inflightEventsThreshold,
-          },
-        ],
-      });
+      const config = structuredClone(defaultServiceConfig)
+      config.queuesConfig.low.bufferTimeSpanMillis = bufferTimeSpanMillis;
+      config.queuesConfig.low.inflightEventsThreshold = inflightEventsThreshold;
+      const service = new TelemetryEventsSender(config);
 
       service.setup();
       service.start();
@@ -296,16 +273,10 @@ describe('services.TelemetryEventsSender', () => {
       const batches = 3;
       const inflightEventsThreshold = 3;
       const bufferTimeSpanMillis = 2000;
-      const service = new TelemetryEventsSender({
-        ...defaultServiceConfig,
-        queuesConfig: [
-          {
-            ...queueLow,
-            bufferTimeSpanMillis: bufferTimeSpanMillis,
-            inflightEventsThreshold: inflightEventsThreshold,
-          },
-        ],
-      });
+      const config = structuredClone(defaultServiceConfig)
+      config.queuesConfig.low.inflightEventsThreshold = inflightEventsThreshold;
+      config.queuesConfig.low.bufferTimeSpanMillis = bufferTimeSpanMillis;
+      const service = new TelemetryEventsSender(config);
 
       service.setup();
       service.start();

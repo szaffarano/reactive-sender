@@ -11,11 +11,16 @@ export interface TelemetryEventSenderConfig {
   maxTelemetryPayloadSizeBytes: number;
   retryCount: number;
   retryDelayMillis: number;
-  queuesConfig: SenderQueueConfig[];
+  queuesConfig: SenderQueuesConfig;
+}
+
+export interface SenderQueuesConfig {
+  low: SenderQueueConfig;
+  medium: SenderQueueConfig;
+  high: SenderQueueConfig;
 }
 
 export interface SenderQueueConfig {
-  priority: Priority;
   bufferTimeSpanMillis: number;
   inflightEventsThreshold: number;
 }
