@@ -19,8 +19,9 @@ export const chunkedBy = function <T>(list: T[], size: number, weight: (v: T) =>
   return list.reduce(chunk, new Chunked<T>()).flush();
 };
 
-export const sleep = (waitTimeInMs: number) =>
-  new Promise((resolve) => setTimeout(resolve, waitTimeInMs));
+export const sleep = async (waitTimeInMs: number): Promise<void> => {
+  await new Promise((resolve) => setTimeout(resolve, waitTimeInMs));
+};
 
 class Chunked<T> {
   chunks: T[][];
@@ -34,7 +35,7 @@ class Chunked<T> {
   }
 
   public flush(): T[][] {
-    if (this.current.length != 0) {
+    if (this.current.length !== 0) {
       this.chunks.push(this.current);
       this.current = [];
     }

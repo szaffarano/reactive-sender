@@ -1,12 +1,12 @@
 import axios from 'axios';
 
-jest.mock('axios');
-
 import { TelemetryEventsSender } from './sender';
 import { Priority } from './sender.types';
 import { Channel } from './telemetry.types';
 
-const mockedAxiosPost = axios.post as jest.MockedFunction<typeof axios.post>;
+jest.mock('axios');
+
+const mockedAxiosPost = jest.spyOn(axios, 'post');
 
 const defaultServiceConfig = {
   maxTelemetryPayloadSizeBytes: 50,
@@ -55,7 +55,7 @@ describe('services.TelemetryEventsSender', () => {
       expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
       expect(mockedAxiosPost).toHaveBeenCalledWith(
         expect.anything(),
-        `"e1"\n"e2"`,
+        '"e1"\n"e2"',
         expect.anything()
       );
     });
@@ -72,7 +72,7 @@ describe('services.TelemetryEventsSender', () => {
       // at most 10 bytes per payload (after serialized to JSON): it should send
       // two posts: ["aaaaa", "b"] and ["c"]
       service.send(Channel.TIMELINE, Priority.LOW, ['aaaaa', 'b', 'c']);
-      const expectedBodies = [`"aaaaa"\n"b"`, `"c"`];
+      const expectedBodies = ['"aaaaa"\n"b"', '"c"'];
 
       await service.stop();
 
@@ -98,7 +98,7 @@ describe('services.TelemetryEventsSender', () => {
       // at most 10 bytes per payload (after serialized to JSON): it should
       // send two posts: ["aaaaa", "b"] and ["c"]
       service.send(Channel.TIMELINE, Priority.LOW, ['aaaaa', 'b', 'c']);
-      const expectedBodies = [`"aaaaa"`, `"b"`, `"c"`];
+      const expectedBodies = ['"aaaaa"', '"b"', '"c"'];
 
       await service.stop();
 
@@ -258,7 +258,7 @@ describe('services.TelemetryEventsSender', () => {
       expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
       expect(mockedAxiosPost).toHaveBeenCalledWith(
         expect.anything(),
-        `"a"\n"b"\n"c"`,
+        '"a"\n"b"\n"c"',
         expect.anything()
       );
 
@@ -293,7 +293,7 @@ describe('services.TelemetryEventsSender', () => {
 
       expect(mockedAxiosPost).toHaveBeenCalledTimes(batches);
       for (let i = 0; i < batches; i++) {
-        const expected = `"a"\n"b"\n"c"`;
+        const expected = '"a"\n"b"\n"c"';
 
         expect(mockedAxiosPost).toHaveBeenNthCalledWith(
           i + 1,

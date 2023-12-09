@@ -1,10 +1,10 @@
-import { Channel } from './telemetry.types';
+import { type Channel } from './telemetry.types';
 
 export interface ITelemetryEventsSender {
-  setup(): void;
-  start(): void;
-  stop(): Promise<void>;
-  send(channel: Channel, priority: Priority, events: any[]): void;
+  setup: () => void;
+  start: () => void;
+  stop: () => Promise<void>;
+  send: (channel: Channel, priority: Priority, events: any[]) => void;
 }
 
 export interface TelemetryEventSenderConfig {

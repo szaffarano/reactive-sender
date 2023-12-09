@@ -1,8 +1,10 @@
 import { TelemetryEventsSender } from './sender';
-import { ITelemetryEventsSender, Priority } from './sender.types';
+import { type ITelemetryEventsSender, Priority } from './sender.types';
 import { Channel } from './telemetry.types';
+import { logger } from './logger';
+import { sleep } from './utils';
 
-const main = async () => {
+const main = async (): Promise<void> => {
   const service: ITelemetryEventsSender = new TelemetryEventsSender({
     maxTelemetryPayloadSizeBytes: 500,
     retryCount: 3,
@@ -23,47 +25,46 @@ const main = async () => {
     },
   });
 
-  console.log('Setup');
+  logger.info('Setup');
   service.setup();
 
   // send events before the service is started
   const initial = ['pre-setup:1', 'pre-setup:2', 'pre-setup:3'];
-  console.log(`service.send(${initial})`);
+  logger.info('service.send(%s)', initial);
   service.send(Channel.LISTS, Priority.LOW, initial);
 
   service.start();
 
-  console.log('Running...');
+  logger.info('Running...');
 
   // simulate background events
   const emitterOne = payloadEmitter('e1');
   const emitterTwo = payloadEmitter('e2');
 
   const intervalOne = setInterval(() => {
-    const next = emitterOne.next().value!!;
+    const next = emitterOne.next().value;
 
-    console.log(`service.send(${next})`);
+    logger.info(`service.send(${next})`);
     service.send(Channel.TIMELINE, Priority.MEDIUM, [next]);
   }, 200);
 
   const intervalTwo = setInterval(() => {
-    const next = emitterTwo.next().value!!;
+    const next = emitterTwo.next().value;
 
-    console.log(`service.send(${next})`);
+    logger.info(`service.send(${next})`);
     service.send(Channel.INSIGHTS, Priority.HIGH, [next]);
   }, 350);
 
   // after a while, stop the sender
-  setTimeout(async () => {
-    console.log('Stopping');
+  await sleep(6000).then(async () => {
+    logger.info('Stopping');
     // stop the background events task
     clearInterval(intervalOne);
     clearInterval(intervalTwo);
 
     await service.stop();
-
-    console.log('Done!');
-  }, 6000);
+    logger.info('Done!');
+  });
 };
 
 function* payloadEmitter(name: string): Generator<string> {
@@ -73,4 +74,6 @@ function* payloadEmitter(name: string): Generator<string> {
   }
 }
 
-main();
+main().catch((err) => {
+  logger.error(err);
+});
