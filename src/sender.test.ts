@@ -14,7 +14,7 @@ const defaultServiceConfig = {
   retryDelayMillis: 100,
   queuesConfig: {
     high: {
-      bufferTimeSpanMillis: 500,
+      bufferTimeSpanMillis: 100,
       inflightEventsThreshold: 1000,
     },
     medium: {
@@ -22,7 +22,7 @@ const defaultServiceConfig = {
       inflightEventsThreshold: 500,
     },
     low: {
-      bufferTimeSpanMillis: 10000,
+      bufferTimeSpanMillis: 5000,
       inflightEventsThreshold: 10,
     },
   },
@@ -39,7 +39,7 @@ describe('services.TelemetryEventsSender', () => {
     jest.useRealTimers();
   });
 
-  describe('when use a single queue', () => {
+  describe('when the service is initialized', () => {
     it('does not lose data during startup', async () => {
       const service = new TelemetryEventsSender(defaultServiceConfig);
 
@@ -59,7 +59,9 @@ describe('services.TelemetryEventsSender', () => {
         expect.anything()
       );
     });
+  });
 
+  describe('simple use cases', () => {
     it('chunks events by size', async () => {
       const service = new TelemetryEventsSender({
         ...defaultServiceConfig,
@@ -142,7 +144,9 @@ describe('services.TelemetryEventsSender', () => {
       // check that no more events are sent
       expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
     });
+  });
 
+  describe('error handling', () => {
     it('retries when the backend fails', async () => {
       const bufferTimeSpanMillis = 3;
       const config = structuredClone(defaultServiceConfig);
@@ -233,7 +237,9 @@ describe('services.TelemetryEventsSender', () => {
       // check that no more events are sent
       expect(mockedAxiosPost).toHaveBeenCalledTimes(defaultServiceConfig.retryCount + 1);
     });
+  });
 
+  describe('throttling', () => {
     it('drop events above inflightEventsThreshold', async () => {
       const inflightEventsThreshold = 3;
       const bufferTimeSpanMillis = 2000;
@@ -307,6 +313,82 @@ describe('services.TelemetryEventsSender', () => {
 
       // check that no more events are sent
       expect(mockedAxiosPost).toHaveBeenCalledTimes(batches);
+    });
+  });
+
+  describe('throttling', () => {
+    it('manage multiple queues for a single channel', async () => {
+      const service = new TelemetryEventsSender(defaultServiceConfig);
+
+      service.setup();
+      service.start();
+
+      const lowEvents = ['low-a', 'low-b', 'low-c', 'low-d'];
+      const mediumEvents = ['med-a', 'med-b', 'med-c', 'med-d'];
+      const highEvents = ['high-a', 'high-b', 'high-c', 'high-d'];
+
+      // send low-priority events
+      service.send(Channel.TIMELINE, Priority.LOW, lowEvents.slice(0, 2));
+
+      // wait less than low priority latency
+      await jest.advanceTimersByTimeAsync(
+        defaultServiceConfig.queuesConfig.medium.bufferTimeSpanMillis
+      );
+
+      // send more low-priority events
+      service.send(Channel.TIMELINE, Priority.LOW, lowEvents.slice(2, lowEvents.length));
+
+      // also send mid-priority events
+      service.send(Channel.TIMELINE, Priority.MEDIUM, mediumEvents);
+
+      // and finally send some high-priority events
+      service.send(Channel.TIMELINE, Priority.HIGH, highEvents);
+
+      // wait a little bit, just the high priority queue latency
+      await jest.advanceTimersByTimeAsync(
+        defaultServiceConfig.queuesConfig.high.bufferTimeSpanMillis
+      );
+
+      // only high priority events should have been sent
+      expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
+      expect(mockedAxiosPost).toHaveBeenNthCalledWith(
+        1,
+        expect.anything(),
+        highEvents.map((e) => JSON.stringify(e)).join('\n'),
+        expect.anything()
+      );
+
+      // wait just the medium priority queue latency
+      await jest.advanceTimersByTimeAsync(
+        defaultServiceConfig.queuesConfig.medium.bufferTimeSpanMillis
+      );
+
+      // only medium priority events should have been sent
+      expect(mockedAxiosPost).toHaveBeenCalledTimes(2);
+      expect(mockedAxiosPost).toHaveBeenNthCalledWith(
+        2,
+        expect.anything(),
+        mediumEvents.map((e) => JSON.stringify(e)).join('\n'),
+        expect.anything()
+      );
+
+      // wait more time
+      await jest.advanceTimersByTimeAsync(
+        defaultServiceConfig.queuesConfig.low.bufferTimeSpanMillis
+      );
+
+      // all events should have been sent
+      expect(mockedAxiosPost).toHaveBeenCalledTimes(3);
+      expect(mockedAxiosPost).toHaveBeenNthCalledWith(
+        3,
+        expect.anything(),
+        lowEvents.map((e) => JSON.stringify(e)).join('\n'),
+        expect.anything()
+      );
+
+      // no more events sent after the service was stopped
+      await service.stop();
+      expect(mockedAxiosPost).toHaveBeenCalledTimes(3);
     });
   });
 });
