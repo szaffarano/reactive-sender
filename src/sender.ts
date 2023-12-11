@@ -44,9 +44,9 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
       .pipe(
         rx.connect((shared$) => {
           return rx.merge(
-            this._queue(shared$, this.queuesConfig.high, Priority.HIGH),
-            this._queue(shared$, this.queuesConfig.medium, Priority.MEDIUM),
-            this._queue(shared$, this.queuesConfig.low, Priority.LOW)
+            this.queue$(shared$, this.queuesConfig.high, Priority.HIGH),
+            this.queue$(shared$, this.queuesConfig.medium, Priority.MEDIUM),
+            this.queue$(shared$, this.queuesConfig.low, Priority.LOW)
           );
         })
       )
@@ -83,7 +83,7 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
     });
   }
 
-  private _queue(
+  private queue$(
     upstream$: rx.Observable<any>,
     config: SenderQueueConfig,
     priority: Priority
