@@ -47,3 +47,21 @@ export class CachedSubject {
       });
   }
 }
+
+export function retry$<R>(
+  retryCount: number,
+  retryDelayMillis: number,
+  body: () => R
+): rx.Observable<R> {
+  return rx
+    .defer(async () => body())
+    .pipe(
+      rx.retry({
+        count: retryCount,
+        delay: retryDelayMillis,
+      }),
+      rx.catchError((error) => {
+        return rx.of(error);
+      })
+    );
+}

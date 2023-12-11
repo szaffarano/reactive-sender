@@ -349,14 +349,13 @@ describe('services.TelemetryEventsSender', () => {
         defaultServiceConfig.queuesConfig.high.bufferTimeSpanMillis
       );
 
-
       // only high priority events should have been sent
       expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
       expect(mockedAxiosPost).toHaveBeenNthCalledWith(
         1,
         expect.anything(),
         highEvents.map((e) => JSON.stringify(e)).join('\n'),
-        { 'headers': { 'X-Channel': Channel.TIMELINE } }
+        { headers: { 'X-Channel': Channel.TIMELINE } }
       );
 
       // wait just the medium priority queue latency
@@ -419,7 +418,7 @@ describe('services.TelemetryEventsSender', () => {
         1,
         expect.anything(),
         mediumEvents.map((e) => JSON.stringify(e)).join('\n'),
-        { 'headers': { 'X-Channel': Channel.LISTS } }
+        { headers: { 'X-Channel': Channel.LISTS } }
       );
 
       await service.stop();
@@ -464,30 +463,21 @@ describe('services.TelemetryEventsSender', () => {
 
         service.send(testCase.channel, testCase.prio, testCase.events);
         await jest.advanceTimersByTimeAsync(testCase.wait);
-      };
+      }
 
       await jest.advanceTimersByTimeAsync(4000);
 
       expect(mockedAxiosPost).toHaveBeenCalledTimes(3);
 
-     expect(mockedAxiosPost).toHaveBeenNthCalledWith(
-        1,
-        expect.anything(),
-        expect.anything(),
-        { 'headers': { 'X-Channel': Channel.TIMELINE } }
-      );
-      expect(mockedAxiosPost).toHaveBeenNthCalledWith(
-        2,
-        expect.anything(),
-        expect.anything(),
-        { 'headers': { 'X-Channel': Channel.DETECTION_ALERTS } }
-      );
-      expect(mockedAxiosPost).toHaveBeenNthCalledWith(
-        3,
-        expect.anything(),
-        expect.anything(),
-        { 'headers': { 'X-Channel': Channel.INSIGHTS } }
-      );
+      expect(mockedAxiosPost).toHaveBeenNthCalledWith(1, expect.anything(), expect.anything(), {
+        headers: { 'X-Channel': Channel.TIMELINE },
+      });
+      expect(mockedAxiosPost).toHaveBeenNthCalledWith(2, expect.anything(), expect.anything(), {
+        headers: { 'X-Channel': Channel.DETECTION_ALERTS },
+      });
+      expect(mockedAxiosPost).toHaveBeenNthCalledWith(3, expect.anything(), expect.anything(), {
+        headers: { 'X-Channel': Channel.INSIGHTS },
+      });
 
       await service.stop();
       expect(mockedAxiosPost).toHaveBeenCalledTimes(3);

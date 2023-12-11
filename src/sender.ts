@@ -12,7 +12,7 @@ import {
 } from './sender.types';
 import { type Channel } from './telemetry.types';
 import * as utils from './utils';
-import { CachedSubject } from './rxjs.utils';
+import { CachedSubject, retry$ } from './rxjs.utils';
 
 export class TelemetryEventsSender implements ITelemetryEventsSender {
   private readonly maxTelemetryPayloadSizeBytes: number;
@@ -53,13 +53,17 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
       .subscribe({
         next: (result) => {
           if (result instanceof Success) {
-            logger.info(`Success! ${result.events} events sent`);
+            logger.info('Success! %d events sent to channel "%s"', result.events, result.channel);
           } else {
-            logger.info('Failure! unable to send %s events', result);
+            logger.info(
+              'Failure! unable to send %d events to channel "%s"',
+              result,
+              result.channel
+            );
           }
         },
         error: (err) => {
-          console.error(`Unexpected error: ${err}`, err);
+          logger.error('Unexpected error: "%s"', err, err);
         },
         complete: () => {
           logger.info('Shutting down');
@@ -145,27 +149,17 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
       rx.concatAll(),
 
       // send events to the telemetry server
-      rx.concatMap((chunk: Chunk) => this.sendEvents$(chunk)),
+      rx.concatMap((chunk: Chunk) =>
+        retry$(this.retryCount, this.retryDelayMillis, async () =>
+          await this.sendEvents(chunk.channel, chunk.payloads)
+        )
+      ),
 
       // update inflight events counter
       rx.tap((result: Result) => {
         inflightEvents$.next(-result.events);
       })
     ) as rx.Observable<Chunk>;
-  }
-
-  private sendEvents$(chunk: Chunk): rx.Observable<Result> {
-    return rx
-      .defer(async () => await this.sendEvents(chunk.channel, chunk.payloads))
-      .pipe(
-        rx.retry({
-          count: this.retryCount,
-          delay: this.retryDelayMillis,
-        }),
-        rx.catchError((error) => {
-          return rx.of(error);
-        })
-      );
   }
 
   // here we should post the data to the telemetry server
@@ -176,7 +170,7 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
         .post('https://jsonplaceholder.typicode.com/posts', body, {
           headers: {
             'X-Channel': channel,
-          }
+          },
         })
         .then((r) => {
           if (r.status < 400) {
@@ -199,7 +193,7 @@ class Chunk {
     public channel: Channel,
     public payloads: string[],
     public priority: Priority
-  ) { }
+  ) {}
 }
 
 class Event {
@@ -207,7 +201,7 @@ class Event {
     public channel: Channel,
     public payload: any,
     public priority: Priority = Priority.LOW
-  ) { }
+  ) {}
 }
 
 type Result = Success | Failure;
@@ -215,8 +209,8 @@ type Result = Success | Failure;
 class Success {
   constructor(
     public readonly events: number,
-    public readonly channel: Channel,
-  ) { }
+    public readonly channel: Channel
+  ) {}
 }
 
 class Failure extends Error {
