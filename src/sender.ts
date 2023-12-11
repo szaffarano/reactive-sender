@@ -169,23 +169,27 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
   }
 
   // here we should post the data to the telemetry server
-  private async sendEvents(channel: string, events: string[]): Promise<Result> {
+  private async sendEvents(channel: Channel, events: string[]): Promise<Result> {
     try {
       const body = events.join('\n');
       return await axios
-        .post('https://jsonplaceholder.typicode.com/posts', body, {})
+        .post('https://jsonplaceholder.typicode.com/posts', body, {
+          headers: {
+            'X-Channel': channel,
+          }
+        })
         .then((r) => {
           if (r.status < 400) {
-            return new Success(events.length);
+            return new Success(events.length, channel);
           } else {
-            throw new Failure(`Got ${r.status}`, events.length);
+            throw new Failure(`Got ${r.status}`, channel, events.length);
           }
         })
         .catch((err) => {
-          throw new Failure(`Error posting events: ${err}`, events.length);
+          throw new Failure(`Error posting events: ${err}`, channel, events.length);
         });
     } catch (err: any) {
-      throw new Failure(`Unexpected error posting events: ${err}`, events.length);
+      throw new Failure(`Unexpected error posting events: ${err}`, channel, events.length);
     }
   }
 }
@@ -195,7 +199,7 @@ class Chunk {
     public channel: Channel,
     public payloads: string[],
     public priority: Priority
-  ) {}
+  ) { }
 }
 
 class Event {
@@ -203,18 +207,22 @@ class Event {
     public channel: Channel,
     public payload: any,
     public priority: Priority = Priority.LOW
-  ) {}
+  ) { }
 }
 
 type Result = Success | Failure;
 
 class Success {
-  constructor(public readonly events: number) {}
+  constructor(
+    public readonly events: number,
+    public readonly channel: Channel,
+  ) { }
 }
 
 class Failure extends Error {
   constructor(
     public readonly reason: string,
+    public readonly channel: Channel,
     public readonly events: number
   ) {
     super(`Unable to send ${events}: ${reason}`);

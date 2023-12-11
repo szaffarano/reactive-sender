@@ -316,7 +316,7 @@ describe('services.TelemetryEventsSender', () => {
     });
   });
 
-  describe('throttling', () => {
+  describe('priority queues', () => {
     it('manage multiple queues for a single channel', async () => {
       const service = new TelemetryEventsSender(defaultServiceConfig);
 
@@ -349,13 +349,14 @@ describe('services.TelemetryEventsSender', () => {
         defaultServiceConfig.queuesConfig.high.bufferTimeSpanMillis
       );
 
+
       // only high priority events should have been sent
       expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
       expect(mockedAxiosPost).toHaveBeenNthCalledWith(
         1,
         expect.anything(),
         highEvents.map((e) => JSON.stringify(e)).join('\n'),
-        expect.anything()
+        { 'headers': { 'X-Channel': Channel.TIMELINE } }
       );
 
       // wait just the medium priority queue latency
@@ -387,6 +388,107 @@ describe('services.TelemetryEventsSender', () => {
       );
 
       // no more events sent after the service was stopped
+      await service.stop();
+      expect(mockedAxiosPost).toHaveBeenCalledTimes(3);
+    });
+
+    it('discard events when inflightEventsThreshold is reached and process other queues', async () => {
+      const service = new TelemetryEventsSender(defaultServiceConfig);
+
+      service.setup();
+      service.start();
+
+      const lowEvents = ['low-a', 'low-b', 'low-c', 'low-d'];
+      const mediumEvents = ['med-a', 'med-b', 'med-c', 'med-d'];
+
+      service.send(Channel.INSIGHTS, Priority.LOW, lowEvents.slice(0, 2));
+      await jest.advanceTimersByTimeAsync(
+        defaultServiceConfig.queuesConfig.medium.bufferTimeSpanMillis
+      );
+
+      expect(mockedAxiosPost).toHaveBeenCalledTimes(0);
+
+      service.send(Channel.INSIGHTS, Priority.LOW, lowEvents.slice(0, 2));
+      service.send(Channel.LISTS, Priority.MEDIUM, mediumEvents);
+      await jest.advanceTimersByTimeAsync(
+        defaultServiceConfig.queuesConfig.medium.bufferTimeSpanMillis
+      );
+
+      expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
+      expect(mockedAxiosPost).toHaveBeenNthCalledWith(
+        1,
+        expect.anything(),
+        mediumEvents.map((e) => JSON.stringify(e)).join('\n'),
+        { 'headers': { 'X-Channel': Channel.LISTS } }
+      );
+
+      await service.stop();
+      expect(mockedAxiosPost).toHaveBeenCalledTimes(2);
+    });
+
+    it('should manage queue priorities and channels', async () => {
+      const service = new TelemetryEventsSender(defaultServiceConfig);
+
+      service.setup();
+      service.start();
+
+      const cases = [
+        {
+          events: ['low-a', 'low-b', 'low-c', 'low-d'],
+          prio: Priority.LOW,
+          channel: Channel.INSIGHTS,
+          wait: 200,
+        },
+        {
+          events: ['mid-a', 'mid-b', 'mid-c', 'mid-d'],
+          prio: Priority.MEDIUM,
+          channel: Channel.TIMELINE,
+          wait: 300,
+        },
+        {
+          events: ['mid-e', 'mid-f', 'mid-g', 'mid-h', 'mid-i'],
+          prio: Priority.MEDIUM,
+          channel: Channel.DETECTION_ALERTS,
+          wait: 300,
+        },
+        {
+          events: ['mid-j', 'mid-k'],
+          prio: Priority.MEDIUM,
+          channel: Channel.TIMELINE,
+          wait: 300,
+        },
+      ];
+
+      for (let i = 0; i < cases.length; i++) {
+        const testCase = cases[i];
+
+        service.send(testCase.channel, testCase.prio, testCase.events);
+        await jest.advanceTimersByTimeAsync(testCase.wait);
+      };
+
+      await jest.advanceTimersByTimeAsync(4000);
+
+      expect(mockedAxiosPost).toHaveBeenCalledTimes(3);
+
+     expect(mockedAxiosPost).toHaveBeenNthCalledWith(
+        1,
+        expect.anything(),
+        expect.anything(),
+        { 'headers': { 'X-Channel': Channel.TIMELINE } }
+      );
+      expect(mockedAxiosPost).toHaveBeenNthCalledWith(
+        2,
+        expect.anything(),
+        expect.anything(),
+        { 'headers': { 'X-Channel': Channel.DETECTION_ALERTS } }
+      );
+      expect(mockedAxiosPost).toHaveBeenNthCalledWith(
+        3,
+        expect.anything(),
+        expect.anything(),
+        { 'headers': { 'X-Channel': Channel.INSIGHTS } }
+      );
+
       await service.stop();
       expect(mockedAxiosPost).toHaveBeenCalledTimes(3);
     });
