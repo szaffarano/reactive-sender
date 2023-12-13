@@ -48,7 +48,7 @@ export class CachedSubject {
   }
 }
 
-export function retry$<R>(
+export function retryOnError$<R>(
   retryCount: number,
   retryDelayMillis: number,
   body: () => R

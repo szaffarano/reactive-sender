@@ -12,7 +12,7 @@ import {
 } from './sender.types';
 import { type Channel } from './telemetry.types';
 import * as utils from './utils';
-import { CachedSubject, retry$ } from './rxjs.utils';
+import { CachedSubject, retryOnError$ } from './rxjs.utils';
 
 export class TelemetryEventsSender implements ITelemetryEventsSender {
   private readonly maxTelemetryPayloadSizeBytes: number;
@@ -150,7 +150,7 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
 
       // send events to the telemetry server
       rx.concatMap((chunk: Chunk) =>
-        retry$(this.retryCount, this.retryDelayMillis, async () =>
+        retryOnError$(this.retryCount, this.retryDelayMillis, async () =>
           await this.sendEvents(chunk.channel, chunk.payloads)
         )
       ),
