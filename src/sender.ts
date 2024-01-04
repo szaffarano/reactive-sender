@@ -98,11 +98,14 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
     inflightEvents$.subscribe((value) => (inflightEventsCounter += value));
 
     return upstream$.pipe(
+      // only take events with the expected priority
+      rx.filter((event) => event.priority === priority),
+
       rx.switchMap((event) => {
         if (inflightEventsCounter < config.inflightEventsThreshold) {
           return rx.of(event);
         }
-        logger.info(`>> Dropping event ${event} (inflightEventsCounter: ${inflightEventsCounter})`);
+        logger.info(`>> Dropping event ${event.channel} (priority: ${priority}, inflightEventsCounter: ${inflightEventsCounter})`);
         return rx.EMPTY;
       }),
 
@@ -111,8 +114,6 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
         inflightEvents$.next(1);
       }),
 
-      // only take events with the expected priority
-      rx.filter((event) => event.priority === priority),
 
       // buffer events for a given time ...
       rx.bufferTime(config.bufferTimeSpanMillis),
@@ -150,8 +151,10 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
 
       // send events to the telemetry server
       rx.concatMap((chunk: Chunk) =>
-        retryOnError$(this.retryCount, this.retryDelayMillis, async () =>
-          await this.sendEvents(chunk.channel, chunk.payloads)
+        retryOnError$(
+          this.retryCount,
+          this.retryDelayMillis,
+          async () => await this.sendEvents(chunk.channel, chunk.payloads)
         )
       ),
 
@@ -176,10 +179,12 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
           if (r.status < 400) {
             return new Success(events.length, channel);
           } else {
+            logger.error(`Unexpected response, got ${r.status}`);
             throw new Failure(`Got ${r.status}`, channel, events.length);
           }
         })
         .catch((err) => {
+          logger.error(`Runtime error: ${err.message}`, err);
           throw new Failure(`Error posting events: ${err}`, channel, events.length);
         });
     } catch (err: any) {
@@ -193,7 +198,7 @@ class Chunk {
     public channel: Channel,
     public payloads: string[],
     public priority: Priority
-  ) {}
+  ) { }
 }
 
 class Event {
@@ -201,7 +206,7 @@ class Event {
     public channel: Channel,
     public payload: any,
     public priority: Priority = Priority.LOW
-  ) {}
+  ) { }
 }
 
 type Result = Success | Failure;
@@ -210,7 +215,7 @@ class Success {
   constructor(
     public readonly events: number,
     public readonly channel: Channel
-  ) {}
+  ) { }
 }
 
 class Failure extends Error {

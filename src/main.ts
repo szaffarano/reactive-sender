@@ -5,27 +5,28 @@ import { logger } from './logger';
 import { sleep } from './utils';
 
 const main = async (): Promise<void> => {
+  const duration = 1000 * 60 * .5;
+
   const service: ITelemetryEventsSender = new TelemetryEventsSender({
-    maxTelemetryPayloadSizeBytes: 500,
+    maxTelemetryPayloadSizeBytes: 1024 * 1024 * 1024,
     retryCount: 3,
     retryDelayMillis: 100,
     queuesConfig: {
       high: {
-        bufferTimeSpanMillis: 250,
-        inflightEventsThreshold: 1000,
-      },
-      medium: {
-        bufferTimeSpanMillis: 1000,
+        bufferTimeSpanMillis: 500,
         inflightEventsThreshold: 500,
       },
+      medium: {
+        bufferTimeSpanMillis: 2500,
+        inflightEventsThreshold: 750,
+      },
       low: {
-        bufferTimeSpanMillis: 2000,
-        inflightEventsThreshold: 40,
+        bufferTimeSpanMillis: 3000,
+        inflightEventsThreshold: 1500,
       },
     },
   });
 
-  logger.info('Setup');
   service.setup();
 
   // send events before the service is started
@@ -35,32 +36,44 @@ const main = async (): Promise<void> => {
 
   service.start();
 
-  logger.info('Running...');
-
   // simulate background events
-  const emitterOne = payloadEmitter('e1');
-  const emitterTwo = payloadEmitter('e2');
+  const emitters: Array<[Generator<string>, Priority, Channel, number]> = [
+    [
+      payloadEmitter('high-prio'),
+      Priority.HIGH,
+      Channel.INSIGHTS,
+      200,
+    ],
+    [
+      payloadEmitter('medium-prio'),
+      Priority.MEDIUM,
+      Channel.LISTS,
+      150,
+    ],
+    [
+      payloadEmitter('low-prio'),
+      Priority.LOW,
+      Channel.DETECTION_ALERTS,
+      100,
+    ],
+  ];
 
-  const intervalOne = setInterval(() => {
-    const next = emitterOne.next().value;
+  const timers = emitters.map(([emitter, priority, channel, latency]) => {
+    return setInterval(() => {
+      const next = emitter.next().value;
 
-    logger.info(`service.send(${next})`);
-    service.send(Channel.TIMELINE, Priority.MEDIUM, [next]);
-  }, 200);
+      const events = Array.from({ length: 50 }, () => emitter.next());
 
-  const intervalTwo = setInterval(() => {
-    const next = emitterTwo.next().value;
-
-    logger.info(`service.send(${next})`);
-    service.send(Channel.INSIGHTS, Priority.HIGH, [next]);
-  }, 350);
+      logger.info(`service.send(${next})`);
+      service.send(channel, priority, events);
+    }, latency);
+  });
 
   // after a while, stop the sender
-  await sleep(6000).then(async () => {
+  await sleep(duration).then(async () => {
     logger.info('Stopping');
     // stop the background events task
-    clearInterval(intervalOne);
-    clearInterval(intervalTwo);
+    timers.forEach((timer) => clearInterval(timer));
 
     await service.stop();
     logger.info('Done!');
