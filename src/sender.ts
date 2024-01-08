@@ -73,6 +73,10 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
   }
 
   public send(channel: TelemetryChannel, events: any[]): void {
+    if (!this.existsQueueConfig(channel)) {
+      throw new Error(`No queue config found for channel "${channel}"`);
+    }
+
     events.forEach((event) => {
       this.events$.next(new Event(channel, event));
     });
@@ -107,7 +111,8 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
       }),
 
       // buffer events for a given time ...
-      rx.bufferTime(config.bufferTimeSpanMillis),
+      rx.bufferWhen(() => rx.interval(config.bufferTimeSpanMillis)),
+
       // ... and exclude empty buffers
       rx.filter((n: Event[]) => n.length > 0),
 
@@ -178,6 +183,10 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
   private getMaxTelemetryPayloadSizeBytes(): number {
     if (this.maxTelemetryPayloadSizeBytes === undefined) throw new Error('Service not initialized');
     return this.maxTelemetryPayloadSizeBytes;
+  }
+
+  private existsQueueConfig(channel: TelemetryChannel): boolean {
+    return this.getQueueConfigs().some((config) => config.channel === channel);
   }
 }
 
