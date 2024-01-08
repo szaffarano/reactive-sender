@@ -1,13 +1,14 @@
 import axios from 'axios';
 
 import { TelemetryEventsSender } from './sender';
+import { type TelemetryEventSenderConfig } from './sender.types';
 import { TelemetryChannel } from './telemetry.types';
 
 jest.mock('axios');
 
 const mockedAxiosPost = jest.spyOn(axios, 'post');
 
-const defaultServiceConfig = {
+const defaultServiceConfig: TelemetryEventSenderConfig = {
   maxPayloadSizeBytes: 1024 * 1024 * 1024,
   retryConfig: {
     retryCount: 3,
@@ -45,9 +46,9 @@ describe('services.TelemetryEventsSender', () => {
 
   describe('when the service is initialized', () => {
     it('does not lose data during startup', async () => {
-      const service = new TelemetryEventsSender(defaultServiceConfig);
+      const service = new TelemetryEventsSender();
 
-      service.setup();
+      service.setup(defaultServiceConfig);
 
       service.send(TelemetryChannel.INSIGHTS, ['e1']);
       service.send(TelemetryChannel.INSIGHTS, ['e2']);
@@ -67,12 +68,12 @@ describe('services.TelemetryEventsSender', () => {
 
   describe('simple use cases', () => {
     it('chunks events by size', async () => {
-      const service = new TelemetryEventsSender({
+      const service = new TelemetryEventsSender();
+
+      service.setup({
         ...defaultServiceConfig,
         maxPayloadSizeBytes: 10,
       });
-
-      service.setup();
       service.start();
 
       // at most 10 bytes per payload (after serialized to JSON): it should send
@@ -94,11 +95,11 @@ describe('services.TelemetryEventsSender', () => {
     });
 
     it('chunks events by size, even if one event is bigger than `maxTelemetryPayloadSizeBytes`', async () => {
-      const service = new TelemetryEventsSender({
+      const service = new TelemetryEventsSender();
+      service.setup({
         ...defaultServiceConfig,
         maxPayloadSizeBytes: 3,
       });
-      service.setup();
       service.start();
 
       // at most 10 bytes per payload (after serialized to JSON): it should
@@ -123,9 +124,9 @@ describe('services.TelemetryEventsSender', () => {
       const bufferTimeSpanMillis = 2000;
       const config = structuredClone(defaultServiceConfig);
       config.queueConfigs[2].bufferTimeSpanMillis = bufferTimeSpanMillis;
-      const service = new TelemetryEventsSender(config);
+      const service = new TelemetryEventsSender();
 
-      service.setup();
+      service.setup(config);
       service.start();
 
       // send some events
@@ -155,14 +156,14 @@ describe('services.TelemetryEventsSender', () => {
       const bufferTimeSpanMillis = 3;
       const config = structuredClone(defaultServiceConfig);
       config.queueConfigs[2].bufferTimeSpanMillis = bufferTimeSpanMillis;
-      const service = new TelemetryEventsSender(config);
+      const service = new TelemetryEventsSender();
 
       mockedAxiosPost
         .mockReturnValueOnce(Promise.resolve({ status: 500 }))
         .mockReturnValueOnce(Promise.resolve({ status: 500 }))
         .mockReturnValue(Promise.resolve({ status: 201 }));
 
-      service.setup();
+      service.setup(config);
       service.start();
 
       // send some events
@@ -186,7 +187,7 @@ describe('services.TelemetryEventsSender', () => {
       const bufferTimeSpanMillis = 3;
       const config = structuredClone(defaultServiceConfig);
       config.queueConfigs[2].bufferTimeSpanMillis = bufferTimeSpanMillis;
-      const service = new TelemetryEventsSender(config);
+      const service = new TelemetryEventsSender();
 
       mockedAxiosPost
         .mockImplementationOnce(() => {
@@ -197,7 +198,7 @@ describe('services.TelemetryEventsSender', () => {
         })
         .mockReturnValue(Promise.resolve({ status: 201 }));
 
-      service.setup();
+      service.setup(config);
       service.start();
 
       // send some events
@@ -218,11 +219,11 @@ describe('services.TelemetryEventsSender', () => {
     });
 
     it('only retries `retryCount` times', async () => {
-      const service = new TelemetryEventsSender(defaultServiceConfig);
+      const service = new TelemetryEventsSender();
 
       mockedAxiosPost.mockReturnValue(Promise.resolve({ status: 500 }));
 
-      service.setup();
+      service.setup(defaultServiceConfig);
       service.start();
 
       // send some events
@@ -254,9 +255,9 @@ describe('services.TelemetryEventsSender', () => {
       const config = structuredClone(defaultServiceConfig);
       config.queueConfigs[2].bufferTimeSpanMillis = bufferTimeSpanMillis;
       config.queueConfigs[2].inflightEventsThreshold = inflightEventsThreshold;
-      const service = new TelemetryEventsSender(config);
+      const service = new TelemetryEventsSender();
 
-      service.setup();
+      service.setup(config);
       service.start();
 
       // send five events
@@ -289,9 +290,9 @@ describe('services.TelemetryEventsSender', () => {
       const config = structuredClone(defaultServiceConfig);
       config.queueConfigs[2].inflightEventsThreshold = inflightEventsThreshold;
       config.queueConfigs[2].bufferTimeSpanMillis = bufferTimeSpanMillis;
-      const service = new TelemetryEventsSender(config);
+      const service = new TelemetryEventsSender();
 
-      service.setup();
+      service.setup(config);
       service.start();
 
       // check that no events are sent before the buffer time span
@@ -326,9 +327,9 @@ describe('services.TelemetryEventsSender', () => {
 
   describe('priority queues', () => {
     it('manage multiple queues for a single channel', async () => {
-      const service = new TelemetryEventsSender(defaultServiceConfig);
+      const service = new TelemetryEventsSender();
 
-      service.setup();
+      service.setup(defaultServiceConfig);
       service.start();
 
       const lowEvents = ['low-a', 'low-b', 'low-c', 'low-d'];
@@ -400,9 +401,9 @@ describe('services.TelemetryEventsSender', () => {
     });
 
     it('discard events when inflightEventsThreshold is reached and process other queues', async () => {
-      const service = new TelemetryEventsSender(defaultServiceConfig);
+      const service = new TelemetryEventsSender();
 
-      service.setup();
+      service.setup(defaultServiceConfig);
       service.start();
 
       const lowEvents = ['low-a', 'low-b', 'low-c', 'low-d'];
@@ -434,9 +435,9 @@ describe('services.TelemetryEventsSender', () => {
     });
 
     it('should manage queue priorities and channels', async () => {
-      const service = new TelemetryEventsSender(defaultServiceConfig);
+      const service = new TelemetryEventsSender();
 
-      service.setup();
+      service.setup(defaultServiceConfig);
       service.start();
 
       const cases = [

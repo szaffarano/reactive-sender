@@ -14,9 +14,9 @@ import * as utils from './utils';
 import { CachedSubject, retryOnError$ } from './rxjs.utils';
 
 export class TelemetryEventsSender implements ITelemetryEventsSender {
-  private readonly maxTelemetryPayloadSizeBytes: number;
-  private readonly retryConfig: RetryConfig;
-  private readonly queueConfigs: QueueConfig[];
+  private maxTelemetryPayloadSizeBytes: number | undefined;
+  private retryConfig: RetryConfig | undefined;
+  private queueConfigs: QueueConfig[] | undefined;
 
   private readonly events$ = new rx.Subject<Event>();
 
@@ -24,13 +24,10 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
   private readonly finished$ = new rx.Subject<void>();
   private cache: CachedSubject | undefined;
 
-  constructor(config: TelemetryEventSenderConfig) {
+  public setup(config: TelemetryEventSenderConfig): void {
     this.maxTelemetryPayloadSizeBytes = config.maxPayloadSizeBytes;
     this.retryConfig = config.retryConfig;
     this.queueConfigs = config.queueConfigs;
-  }
-
-  public setup(): void {
     this.cache = new CachedSubject(this.events$, this.stop$);
   }
 
@@ -40,7 +37,7 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
     this.events$
       .pipe(
         rx.connect((shared$) => {
-          const queues$ = this.queueConfigs.map((config) => this.queue$(shared$, config));
+          const queues$ = this.getQueueConfigs().map((config) => this.queue$(shared$, config));
           return rx.merge(...queues$);
         })
       )
@@ -137,7 +134,7 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
       rx.map((events) =>
         [...events].flatMap(([channel, values]) =>
           utils
-            .chunkedBy(values, this.maxTelemetryPayloadSizeBytes, (payload) => payload.length)
+            .chunkedBy(values, this.getMaxTelemetryPayloadSizeBytes(), (payload) => payload.length)
             .map((chunk) => new Chunk(channel, chunk))
         )
       ),
@@ -146,8 +143,8 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
       // send events to the telemetry server
       rx.concatMap((chunk: Chunk) =>
         retryOnError$(
-          this.retryConfig.retryCount,
-          this.retryConfig.retryDelayMillis,
+          this.getRetryConfig().retryCount,
+          this.getRetryConfig().retryDelayMillis,
           async () => await this.sendEvents(chunk.channel, chunk.payloads)
         )
       ),
@@ -184,6 +181,21 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
     } catch (err: any) {
       throw new Failure(`Unexpected error posting events: ${err}`, channel, events.length);
     }
+  }
+
+  private getQueueConfigs(): QueueConfig[] {
+    if (this.queueConfigs === undefined) throw new Error('Service not initialized');
+    return this.queueConfigs;
+  }
+
+  private getRetryConfig(): RetryConfig {
+    if (this.retryConfig === undefined) throw new Error('Service not initialized');
+    return this.retryConfig;
+  }
+
+  private getMaxTelemetryPayloadSizeBytes(): number {
+    if (this.maxTelemetryPayloadSizeBytes === undefined) throw new Error('Service not initialized');
+    return this.maxTelemetryPayloadSizeBytes;
   }
 }
 

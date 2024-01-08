@@ -1,5 +1,5 @@
 import { TelemetryEventsSender } from './sender';
-import { type ITelemetryEventsSender } from './sender.types';
+import { type ITelemetryEventsSender, type TelemetryEventSenderConfig } from './sender.types';
 import { TelemetryChannel } from './telemetry.types';
 import { logger } from './logger';
 import { sleep } from './utils';
@@ -7,7 +7,9 @@ import { sleep } from './utils';
 const main = async (): Promise<void> => {
   const duration = 1000 * 60 * 0.5;
 
-  const service: ITelemetryEventsSender = new TelemetryEventsSender({
+  const service: ITelemetryEventsSender = new TelemetryEventsSender();
+
+  const config: TelemetryEventSenderConfig = {
     maxPayloadSizeBytes: 1024 * 1024 * 1024,
     retryConfig: {
       retryCount: 3,
@@ -30,9 +32,9 @@ const main = async (): Promise<void> => {
         inflightEventsThreshold: 1500,
       },
     ],
-  });
+  };
 
-  service.setup();
+  service.setup(config);
 
   // send events before the service is started
   const initial = ['pre-setup:1', 'pre-setup:2', 'pre-setup:3'];
