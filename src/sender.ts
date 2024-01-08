@@ -111,32 +111,14 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
       // ... and exclude empty buffers
       rx.filter((n: Event[]) => n.length > 0),
 
-      // group event payloads by channel
-      rx.map((events) => {
-        return events.reduce((acc, event) => {
-          if (!acc.has(event.channel)) {
-            acc.set(event.channel, []);
-          }
-          acc.get(event.channel)?.push(event.payload);
-          return acc;
-        }, new Map<TelemetryChannel, any[]>());
-      }),
-
       // serialize the payloads
-      rx.map(
-        (events) =>
-          new Map(
-            [...events].map(([channel, values]) => [channel, values.map((v) => JSON.stringify(v))])
-          )
-      ),
+      rx.map((events) => events.map((e) => JSON.stringify(e.payload))),
 
       // chunk by size
-      rx.map((events) =>
-        [...events].flatMap(([channel, values]) =>
-          utils
-            .chunkedBy(values, this.getMaxTelemetryPayloadSizeBytes(), (payload) => payload.length)
-            .map((chunk) => new Chunk(channel, chunk))
-        )
+      rx.map((values) =>
+        utils
+          .chunkedBy(values, this.getMaxTelemetryPayloadSizeBytes(), (payload) => payload.length)
+          .map((chunk) => new Chunk(config.channel, chunk))
       ),
       rx.concatAll(),
 
@@ -145,7 +127,7 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
         retryOnError$(
           this.getRetryConfig().retryCount,
           this.getRetryConfig().retryDelayMillis,
-          async () => await this.sendEvents(chunk.channel, chunk.payloads)
+          async () => await this.sendEvents(config.channel, chunk.payloads)
         )
       ),
 
@@ -203,14 +185,14 @@ class Chunk {
   constructor(
     public channel: TelemetryChannel,
     public payloads: string[]
-  ) {}
+  ) { }
 }
 
 class Event {
   constructor(
     public channel: TelemetryChannel,
     public payload: any
-  ) {}
+  ) { }
 }
 
 type Result = Success | Failure;
@@ -219,7 +201,7 @@ class Success {
   constructor(
     public readonly events: number,
     public readonly channel: TelemetryChannel
-  ) {}
+  ) { }
 }
 
 class Failure extends Error {
