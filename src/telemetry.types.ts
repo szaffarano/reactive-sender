@@ -1,4 +1,4 @@
-export enum Channel {
+export enum TelemetryChannel {
   LISTS = 'security-lists-v2',
   ENDPOINT_META = 'endpoint-metadata',
   ENDPOINT_ALERTS = 'alerts-endpoint',

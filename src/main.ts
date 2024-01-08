@@ -1,30 +1,35 @@
 import { TelemetryEventsSender } from './sender';
-import { type ITelemetryEventsSender, Priority } from './sender.types';
-import { Channel } from './telemetry.types';
+import { type ITelemetryEventsSender } from './sender.types';
+import { TelemetryChannel } from './telemetry.types';
 import { logger } from './logger';
 import { sleep } from './utils';
 
 const main = async (): Promise<void> => {
-  const duration = 1000 * 60 * .5;
+  const duration = 1000 * 60 * 0.5;
 
   const service: ITelemetryEventsSender = new TelemetryEventsSender({
-    maxTelemetryPayloadSizeBytes: 1024 * 1024 * 1024,
-    retryCount: 3,
-    retryDelayMillis: 100,
-    queuesConfig: {
-      high: {
+    maxPayloadSizeBytes: 1024 * 1024 * 1024,
+    retryConfig: {
+      retryCount: 3,
+      retryDelayMillis: 100,
+    },
+    queueConfigs: [
+      {
+        channel: TelemetryChannel.INSIGHTS,
         bufferTimeSpanMillis: 500,
         inflightEventsThreshold: 500,
       },
-      medium: {
+      {
+        channel: TelemetryChannel.LISTS,
         bufferTimeSpanMillis: 2500,
         inflightEventsThreshold: 750,
       },
-      low: {
+      {
+        channel: TelemetryChannel.DETECTION_ALERTS,
         bufferTimeSpanMillis: 3000,
         inflightEventsThreshold: 1500,
       },
-    },
+    ],
   });
 
   service.setup();
@@ -32,40 +37,25 @@ const main = async (): Promise<void> => {
   // send events before the service is started
   const initial = ['pre-setup:1', 'pre-setup:2', 'pre-setup:3'];
   logger.info('service.send(%s)', initial);
-  service.send(Channel.LISTS, Priority.LOW, initial);
+  service.send(TelemetryChannel.LISTS, initial);
 
   service.start();
 
   // simulate background events
-  const emitters: Array<[Generator<string>, Priority, Channel, number]> = [
-    [
-      payloadEmitter('high-prio'),
-      Priority.HIGH,
-      Channel.INSIGHTS,
-      200,
-    ],
-    [
-      payloadEmitter('medium-prio'),
-      Priority.MEDIUM,
-      Channel.LISTS,
-      150,
-    ],
-    [
-      payloadEmitter('low-prio'),
-      Priority.LOW,
-      Channel.DETECTION_ALERTS,
-      100,
-    ],
+  const emitters: Array<[Generator<string>, TelemetryChannel, number]> = [
+    [payloadEmitter('insights'), TelemetryChannel.INSIGHTS, 200],
+    [payloadEmitter('lists)'), TelemetryChannel.LISTS, 150],
+    [payloadEmitter('detection-alerts'), TelemetryChannel.DETECTION_ALERTS, 100],
   ];
 
-  const timers = emitters.map(([emitter, priority, channel, latency]) => {
+  const timers = emitters.map(([emitter, channel, latency]) => {
     return setInterval(() => {
       const next = emitter.next().value;
 
       const events = Array.from({ length: 50 }, () => emitter.next());
 
       logger.info(`service.send(${next})`);
-      service.send(channel, priority, events);
+      service.send(channel, events);
     }, latency);
   });
 
@@ -73,7 +63,9 @@ const main = async (): Promise<void> => {
   await sleep(duration).then(async () => {
     logger.info('Stopping');
     // stop the background events task
-    timers.forEach((timer) => clearInterval(timer));
+    timers.forEach((timer) => {
+      clearInterval(timer);
+    });
 
     await service.stop();
     logger.info('Done!');

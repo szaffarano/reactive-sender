@@ -1,32 +1,25 @@
-import { type Channel } from './telemetry.types';
+import { type TelemetryChannel } from './telemetry.types';
 
 export interface ITelemetryEventsSender {
   setup: () => void;
   start: () => void;
   stop: () => Promise<void>;
-  send: (channel: Channel, priority: Priority, events: any[]) => void;
+  send: (channel: TelemetryChannel, events: any[]) => void;
 }
 
 export interface TelemetryEventSenderConfig {
-  maxTelemetryPayloadSizeBytes: number;
-  retryCount: number;
-  retryDelayMillis: number;
-  queuesConfig: SenderQueuesConfig;
+  maxPayloadSizeBytes: number;
+  retryConfig: RetryConfig;
+  queueConfigs: QueueConfig[];
 }
 
-export interface SenderQueuesConfig {
-  low: SenderQueueConfig;
-  medium: SenderQueueConfig;
-  high: SenderQueueConfig;
-}
-
-export interface SenderQueueConfig {
+export interface QueueConfig {
+  channel: TelemetryChannel;
   bufferTimeSpanMillis: number;
   inflightEventsThreshold: number;
 }
 
-export enum Priority {
-  HIGH = 'high',
-  MEDIUM = 'medium',
-  LOW = 'low',
+export interface RetryConfig {
+  retryCount: number;
+  retryDelayMillis: number;
 }

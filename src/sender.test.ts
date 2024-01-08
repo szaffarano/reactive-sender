@@ -1,31 +1,35 @@
 import axios from 'axios';
 
 import { TelemetryEventsSender } from './sender';
-import { Priority } from './sender.types';
-import { Channel } from './telemetry.types';
+import { TelemetryChannel } from './telemetry.types';
 
 jest.mock('axios');
 
 const mockedAxiosPost = jest.spyOn(axios, 'post');
 
 const defaultServiceConfig = {
-  maxTelemetryPayloadSizeBytes: 50,
-  retryCount: 3,
-  retryDelayMillis: 100,
-  queuesConfig: {
-    high: {
+  maxPayloadSizeBytes: 1024 * 1024 * 1024,
+  retryConfig: {
+    retryCount: 3,
+    retryDelayMillis: 100,
+  },
+  queueConfigs: [
+    {
+      channel: TelemetryChannel.INSIGHTS,
       bufferTimeSpanMillis: 100,
       inflightEventsThreshold: 1000,
     },
-    medium: {
+    {
+      channel: TelemetryChannel.LISTS,
       bufferTimeSpanMillis: 1000,
       inflightEventsThreshold: 500,
     },
-    low: {
+    {
+      channel: TelemetryChannel.DETECTION_ALERTS,
       bufferTimeSpanMillis: 5000,
       inflightEventsThreshold: 10,
     },
-  },
+  ],
 };
 
 describe('services.TelemetryEventsSender', () => {
@@ -45,8 +49,8 @@ describe('services.TelemetryEventsSender', () => {
 
       service.setup();
 
-      service.send(Channel.TIMELINE, Priority.LOW, ['e1']);
-      service.send(Channel.TIMELINE, Priority.LOW, ['e2']);
+      service.send(TelemetryChannel.INSIGHTS, ['e1']);
+      service.send(TelemetryChannel.INSIGHTS, ['e2']);
 
       service.start();
 
@@ -65,7 +69,7 @@ describe('services.TelemetryEventsSender', () => {
     it('chunks events by size', async () => {
       const service = new TelemetryEventsSender({
         ...defaultServiceConfig,
-        maxTelemetryPayloadSizeBytes: 10,
+        maxPayloadSizeBytes: 10,
       });
 
       service.setup();
@@ -73,7 +77,7 @@ describe('services.TelemetryEventsSender', () => {
 
       // at most 10 bytes per payload (after serialized to JSON): it should send
       // two posts: ["aaaaa", "b"] and ["c"]
-      service.send(Channel.TIMELINE, Priority.LOW, ['aaaaa', 'b', 'c']);
+      service.send(TelemetryChannel.DETECTION_ALERTS, ['aaaaa', 'b', 'c']);
       const expectedBodies = ['"aaaaa"\n"b"', '"c"'];
 
       await service.stop();
@@ -92,14 +96,14 @@ describe('services.TelemetryEventsSender', () => {
     it('chunks events by size, even if one event is bigger than `maxTelemetryPayloadSizeBytes`', async () => {
       const service = new TelemetryEventsSender({
         ...defaultServiceConfig,
-        maxTelemetryPayloadSizeBytes: 3,
+        maxPayloadSizeBytes: 3,
       });
       service.setup();
       service.start();
 
       // at most 10 bytes per payload (after serialized to JSON): it should
       // send two posts: ["aaaaa", "b"] and ["c"]
-      service.send(Channel.TIMELINE, Priority.LOW, ['aaaaa', 'b', 'c']);
+      service.send(TelemetryChannel.DETECTION_ALERTS, ['aaaaa', 'b', 'c']);
       const expectedBodies = ['"aaaaa"', '"b"', '"c"'];
 
       await service.stop();
@@ -118,14 +122,14 @@ describe('services.TelemetryEventsSender', () => {
     it('buffer for a specific time period', async () => {
       const bufferTimeSpanMillis = 2000;
       const config = structuredClone(defaultServiceConfig);
-      config.queuesConfig.low.bufferTimeSpanMillis = bufferTimeSpanMillis;
+      config.queueConfigs[2].bufferTimeSpanMillis = bufferTimeSpanMillis;
       const service = new TelemetryEventsSender(config);
 
       service.setup();
       service.start();
 
       // send some events
-      service.send(Channel.TIMELINE, Priority.LOW, ['a', 'b', 'c']);
+      service.send(TelemetryChannel.DETECTION_ALERTS, ['a', 'b', 'c']);
 
       // advance time by less than the buffer time span
       await jest.advanceTimersByTimeAsync(bufferTimeSpanMillis * 0.2);
@@ -150,7 +154,7 @@ describe('services.TelemetryEventsSender', () => {
     it('retries when the backend fails', async () => {
       const bufferTimeSpanMillis = 3;
       const config = structuredClone(defaultServiceConfig);
-      config.queuesConfig.low.bufferTimeSpanMillis = bufferTimeSpanMillis;
+      config.queueConfigs[2].bufferTimeSpanMillis = bufferTimeSpanMillis;
       const service = new TelemetryEventsSender(config);
 
       mockedAxiosPost
@@ -162,26 +166,26 @@ describe('services.TelemetryEventsSender', () => {
       service.start();
 
       // send some events
-      service.send(Channel.TIMELINE, Priority.LOW, ['a']);
+      service.send(TelemetryChannel.DETECTION_ALERTS, ['a']);
 
       // advance time by more than the buffer time span
       await jest.advanceTimersByTimeAsync(
-        bufferTimeSpanMillis * defaultServiceConfig.retryDelayMillis
+        bufferTimeSpanMillis * defaultServiceConfig.retryConfig.retryDelayMillis
       );
 
       // check that the events are sent
-      expect(mockedAxiosPost).toHaveBeenCalledTimes(defaultServiceConfig.retryCount);
+      expect(mockedAxiosPost).toHaveBeenCalledTimes(defaultServiceConfig.retryConfig.retryCount);
 
       await service.stop();
 
       // check that no more events are sent
-      expect(mockedAxiosPost).toHaveBeenCalledTimes(defaultServiceConfig.retryCount);
+      expect(mockedAxiosPost).toHaveBeenCalledTimes(defaultServiceConfig.retryConfig.retryCount);
     });
 
     it('retries runtime errors', async () => {
       const bufferTimeSpanMillis = 3;
       const config = structuredClone(defaultServiceConfig);
-      config.queuesConfig.low.bufferTimeSpanMillis = bufferTimeSpanMillis;
+      config.queueConfigs[2].bufferTimeSpanMillis = bufferTimeSpanMillis;
       const service = new TelemetryEventsSender(config);
 
       mockedAxiosPost
@@ -197,20 +201,20 @@ describe('services.TelemetryEventsSender', () => {
       service.start();
 
       // send some events
-      service.send(Channel.TIMELINE, Priority.LOW, ['a']);
+      service.send(TelemetryChannel.DETECTION_ALERTS, ['a']);
 
       // advance time by more than the buffer time span
       await jest.advanceTimersByTimeAsync(
-        bufferTimeSpanMillis * defaultServiceConfig.retryDelayMillis
+        bufferTimeSpanMillis * defaultServiceConfig.retryConfig.retryDelayMillis
       );
 
       // check that the events are sent
-      expect(mockedAxiosPost).toHaveBeenCalledTimes(defaultServiceConfig.retryCount);
+      expect(mockedAxiosPost).toHaveBeenCalledTimes(defaultServiceConfig.retryConfig.retryCount);
 
       await service.stop();
 
       // check that no more events are sent
-      expect(mockedAxiosPost).toHaveBeenCalledTimes(defaultServiceConfig.retryCount);
+      expect(mockedAxiosPost).toHaveBeenCalledTimes(defaultServiceConfig.retryConfig.retryCount);
     });
 
     it('only retries `retryCount` times', async () => {
@@ -222,20 +226,24 @@ describe('services.TelemetryEventsSender', () => {
       service.start();
 
       // send some events
-      service.send(Channel.TIMELINE, Priority.LOW, ['a']);
+      service.send(TelemetryChannel.DETECTION_ALERTS, ['a']);
 
       // advance time by more than the buffer time span
       await jest.advanceTimersByTimeAsync(
-        defaultServiceConfig.queuesConfig.low.bufferTimeSpanMillis * 1.2
+        defaultServiceConfig.queueConfigs[2].bufferTimeSpanMillis * 1.2
       );
 
       // check that the events are sent
-      expect(mockedAxiosPost).toHaveBeenCalledTimes(defaultServiceConfig.retryCount + 1);
+      expect(mockedAxiosPost).toHaveBeenCalledTimes(
+        defaultServiceConfig.retryConfig.retryCount + 1
+      );
 
       await service.stop();
 
       // check that no more events are sent
-      expect(mockedAxiosPost).toHaveBeenCalledTimes(defaultServiceConfig.retryCount + 1);
+      expect(mockedAxiosPost).toHaveBeenCalledTimes(
+        defaultServiceConfig.retryConfig.retryCount + 1
+      );
     });
   });
 
@@ -244,15 +252,15 @@ describe('services.TelemetryEventsSender', () => {
       const inflightEventsThreshold = 3;
       const bufferTimeSpanMillis = 2000;
       const config = structuredClone(defaultServiceConfig);
-      config.queuesConfig.low.bufferTimeSpanMillis = bufferTimeSpanMillis;
-      config.queuesConfig.low.inflightEventsThreshold = inflightEventsThreshold;
+      config.queueConfigs[2].bufferTimeSpanMillis = bufferTimeSpanMillis;
+      config.queueConfigs[2].inflightEventsThreshold = inflightEventsThreshold;
       const service = new TelemetryEventsSender(config);
 
       service.setup();
       service.start();
 
       // send five events
-      service.send(Channel.TIMELINE, Priority.LOW, ['a', 'b', 'c', 'd']);
+      service.send(TelemetryChannel.DETECTION_ALERTS, ['a', 'b', 'c', 'd']);
 
       // check that no events are sent before the buffer time span
       expect(mockedAxiosPost).toHaveBeenCalledTimes(0);
@@ -279,8 +287,8 @@ describe('services.TelemetryEventsSender', () => {
       const inflightEventsThreshold = 3;
       const bufferTimeSpanMillis = 2000;
       const config = structuredClone(defaultServiceConfig);
-      config.queuesConfig.low.inflightEventsThreshold = inflightEventsThreshold;
-      config.queuesConfig.low.bufferTimeSpanMillis = bufferTimeSpanMillis;
+      config.queueConfigs[2].inflightEventsThreshold = inflightEventsThreshold;
+      config.queueConfigs[2].bufferTimeSpanMillis = bufferTimeSpanMillis;
       const service = new TelemetryEventsSender(config);
 
       service.setup();
@@ -291,7 +299,7 @@ describe('services.TelemetryEventsSender', () => {
 
       for (let i = 0; i < batches; i++) {
         // send the next batch
-        service.send(Channel.TIMELINE, Priority.LOW, ['a', 'b', 'c']);
+        service.send(TelemetryChannel.DETECTION_ALERTS, ['a', 'b', 'c']);
 
         // advance time
         await jest.advanceTimersByTimeAsync(bufferTimeSpanMillis * 2);
@@ -328,25 +336,25 @@ describe('services.TelemetryEventsSender', () => {
       const highEvents = ['high-a', 'high-b', 'high-c', 'high-d'];
 
       // send low-priority events
-      service.send(Channel.TIMELINE, Priority.LOW, lowEvents.slice(0, 2));
+      service.send(TelemetryChannel.DETECTION_ALERTS, lowEvents.slice(0, 2));
 
       // wait less than low priority latency
       await jest.advanceTimersByTimeAsync(
-        defaultServiceConfig.queuesConfig.medium.bufferTimeSpanMillis
+        defaultServiceConfig.queueConfigs[1].bufferTimeSpanMillis
       );
 
       // send more low-priority events
-      service.send(Channel.TIMELINE, Priority.LOW, lowEvents.slice(2, lowEvents.length));
+      service.send(TelemetryChannel.DETECTION_ALERTS, lowEvents.slice(2, lowEvents.length));
 
       // also send mid-priority events
-      service.send(Channel.TIMELINE, Priority.MEDIUM, mediumEvents);
+      service.send(TelemetryChannel.LISTS, mediumEvents);
 
       // and finally send some high-priority events
-      service.send(Channel.TIMELINE, Priority.HIGH, highEvents);
+      service.send(TelemetryChannel.INSIGHTS, highEvents);
 
       // wait a little bit, just the high priority queue latency
       await jest.advanceTimersByTimeAsync(
-        defaultServiceConfig.queuesConfig.high.bufferTimeSpanMillis
+        defaultServiceConfig.queueConfigs[0].bufferTimeSpanMillis
       );
 
       // only high priority events should have been sent
@@ -355,12 +363,12 @@ describe('services.TelemetryEventsSender', () => {
         1,
         expect.anything(),
         highEvents.map((e) => JSON.stringify(e)).join('\n'),
-        { headers: { 'X-Channel': Channel.TIMELINE } }
+        { headers: { 'X-Channel': TelemetryChannel.INSIGHTS } }
       );
 
       // wait just the medium priority queue latency
       await jest.advanceTimersByTimeAsync(
-        defaultServiceConfig.queuesConfig.medium.bufferTimeSpanMillis
+        defaultServiceConfig.queueConfigs[1].bufferTimeSpanMillis
       );
 
       // only medium priority events should have been sent
@@ -374,7 +382,7 @@ describe('services.TelemetryEventsSender', () => {
 
       // wait more time
       await jest.advanceTimersByTimeAsync(
-        defaultServiceConfig.queuesConfig.low.bufferTimeSpanMillis
+        defaultServiceConfig.queueConfigs[2].bufferTimeSpanMillis
       );
 
       // all events should have been sent
@@ -400,17 +408,17 @@ describe('services.TelemetryEventsSender', () => {
       const lowEvents = ['low-a', 'low-b', 'low-c', 'low-d'];
       const mediumEvents = ['med-a', 'med-b', 'med-c', 'med-d'];
 
-      service.send(Channel.INSIGHTS, Priority.LOW, lowEvents.slice(0, 2));
+      service.send(TelemetryChannel.DETECTION_ALERTS, lowEvents.slice(0, 2));
       await jest.advanceTimersByTimeAsync(
-        defaultServiceConfig.queuesConfig.medium.bufferTimeSpanMillis
+        defaultServiceConfig.queueConfigs[1].bufferTimeSpanMillis
       );
 
       expect(mockedAxiosPost).toHaveBeenCalledTimes(0);
 
-      service.send(Channel.INSIGHTS, Priority.LOW, lowEvents.slice(0, 2));
-      service.send(Channel.LISTS, Priority.MEDIUM, mediumEvents);
+      service.send(TelemetryChannel.DETECTION_ALERTS, lowEvents.slice(0, 2));
+      service.send(TelemetryChannel.LISTS, mediumEvents);
       await jest.advanceTimersByTimeAsync(
-        defaultServiceConfig.queuesConfig.medium.bufferTimeSpanMillis
+        defaultServiceConfig.queueConfigs[1].bufferTimeSpanMillis
       );
 
       expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
@@ -418,7 +426,7 @@ describe('services.TelemetryEventsSender', () => {
         1,
         expect.anything(),
         mediumEvents.map((e) => JSON.stringify(e)).join('\n'),
-        { headers: { 'X-Channel': Channel.LISTS } }
+        { headers: { 'X-Channel': TelemetryChannel.LISTS } }
       );
 
       await service.stop();
@@ -434,26 +442,22 @@ describe('services.TelemetryEventsSender', () => {
       const cases = [
         {
           events: ['low-a', 'low-b', 'low-c', 'low-d'],
-          prio: Priority.LOW,
-          channel: Channel.INSIGHTS,
+          channel: TelemetryChannel.DETECTION_ALERTS,
           wait: 200,
         },
         {
           events: ['mid-a', 'mid-b', 'mid-c', 'mid-d'],
-          prio: Priority.MEDIUM,
-          channel: Channel.TIMELINE,
+          channel: TelemetryChannel.LISTS,
           wait: 300,
         },
         {
           events: ['mid-e', 'mid-f', 'mid-g', 'mid-h', 'mid-i'],
-          prio: Priority.MEDIUM,
-          channel: Channel.DETECTION_ALERTS,
+          channel: TelemetryChannel.LISTS,
           wait: 300,
         },
         {
           events: ['mid-j', 'mid-k'],
-          prio: Priority.MEDIUM,
-          channel: Channel.TIMELINE,
+          channel: TelemetryChannel.LISTS,
           wait: 300,
         },
       ];
@@ -461,26 +465,23 @@ describe('services.TelemetryEventsSender', () => {
       for (let i = 0; i < cases.length; i++) {
         const testCase = cases[i];
 
-        service.send(testCase.channel, testCase.prio, testCase.events);
+        service.send(testCase.channel, testCase.events);
         await jest.advanceTimersByTimeAsync(testCase.wait);
       }
 
       await jest.advanceTimersByTimeAsync(4000);
 
-      expect(mockedAxiosPost).toHaveBeenCalledTimes(3);
+      expect(mockedAxiosPost).toHaveBeenCalledTimes(2);
 
       expect(mockedAxiosPost).toHaveBeenNthCalledWith(1, expect.anything(), expect.anything(), {
-        headers: { 'X-Channel': Channel.TIMELINE },
+        headers: { 'X-Channel': TelemetryChannel.LISTS },
       });
       expect(mockedAxiosPost).toHaveBeenNthCalledWith(2, expect.anything(), expect.anything(), {
-        headers: { 'X-Channel': Channel.DETECTION_ALERTS },
-      });
-      expect(mockedAxiosPost).toHaveBeenNthCalledWith(3, expect.anything(), expect.anything(), {
-        headers: { 'X-Channel': Channel.INSIGHTS },
+        headers: { 'X-Channel': TelemetryChannel.DETECTION_ALERTS },
       });
 
       await service.stop();
-      expect(mockedAxiosPost).toHaveBeenCalledTimes(3);
+      expect(mockedAxiosPost).toHaveBeenCalledTimes(2);
     });
   });
 });

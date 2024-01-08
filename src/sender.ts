@@ -5,20 +5,18 @@ import { logger } from './logger';
 
 import {
   type ITelemetryEventsSender,
-  Priority,
-  type SenderQueueConfig,
-  type SenderQueuesConfig,
+  type QueueConfig,
+  type RetryConfig,
   type TelemetryEventSenderConfig,
 } from './sender.types';
-import { type Channel } from './telemetry.types';
+import { type TelemetryChannel } from './telemetry.types';
 import * as utils from './utils';
 import { CachedSubject, retryOnError$ } from './rxjs.utils';
 
 export class TelemetryEventsSender implements ITelemetryEventsSender {
   private readonly maxTelemetryPayloadSizeBytes: number;
-  private readonly retryCount: number;
-  private readonly retryDelayMillis: number;
-  private readonly queuesConfig: SenderQueuesConfig;
+  private readonly retryConfig: RetryConfig;
+  private readonly queueConfigs: QueueConfig[];
 
   private readonly events$ = new rx.Subject<Event>();
 
@@ -27,10 +25,9 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
   private cache: CachedSubject | undefined;
 
   constructor(config: TelemetryEventSenderConfig) {
-    this.maxTelemetryPayloadSizeBytes = config.maxTelemetryPayloadSizeBytes;
-    this.retryCount = config.retryCount;
-    this.retryDelayMillis = config.retryDelayMillis;
-    this.queuesConfig = config.queuesConfig;
+    this.maxTelemetryPayloadSizeBytes = config.maxPayloadSizeBytes;
+    this.retryConfig = config.retryConfig;
+    this.queueConfigs = config.queueConfigs;
   }
 
   public setup(): void {
@@ -43,11 +40,8 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
     this.events$
       .pipe(
         rx.connect((shared$) => {
-          return rx.merge(
-            this.queue$(shared$, this.queuesConfig.high, Priority.HIGH),
-            this.queue$(shared$, this.queuesConfig.medium, Priority.MEDIUM),
-            this.queue$(shared$, this.queuesConfig.low, Priority.LOW)
-          );
+          const queues$ = this.queueConfigs.map((config) => this.queue$(shared$, config));
+          return rx.merge(...queues$);
         })
       )
       .subscribe({
@@ -81,17 +75,13 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
     await finishPromise;
   }
 
-  public send(channel: Channel, priority: Priority, events: any[]): void {
+  public send(channel: TelemetryChannel, events: any[]): void {
     events.forEach((event) => {
-      this.events$.next(new Event(channel, event, priority));
+      this.events$.next(new Event(channel, event));
     });
   }
 
-  private queue$(
-    upstream$: rx.Observable<any>,
-    config: SenderQueueConfig,
-    priority: Priority
-  ): rx.Observable<Chunk> {
+  private queue$(upstream$: rx.Observable<any>, config: QueueConfig): rx.Observable<Chunk> {
     let inflightEventsCounter: number = 0;
     const inflightEvents$: rx.Subject<number> = new rx.Subject<number>();
 
@@ -99,13 +89,18 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
 
     return upstream$.pipe(
       // only take events with the expected priority
-      rx.filter((event) => event.priority === priority),
+      rx.filter((event) => event.channel === config.channel),
 
       rx.switchMap((event) => {
         if (inflightEventsCounter < config.inflightEventsThreshold) {
           return rx.of(event);
         }
-        logger.info(`>> Dropping event ${event.channel} (priority: ${priority}, inflightEventsCounter: ${inflightEventsCounter})`);
+        logger.info(
+          '>> Dropping event %s (channel: %s, inflightEventsCounter: %s)',
+          event,
+          config.channel,
+          inflightEventsCounter
+        );
         return rx.EMPTY;
       }),
 
@@ -113,7 +108,6 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
       rx.tap(() => {
         inflightEvents$.next(1);
       }),
-
 
       // buffer events for a given time ...
       rx.bufferTime(config.bufferTimeSpanMillis),
@@ -128,7 +122,7 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
           }
           acc.get(event.channel)?.push(event.payload);
           return acc;
-        }, new Map<Channel, any[]>());
+        }, new Map<TelemetryChannel, any[]>());
       }),
 
       // serialize the payloads
@@ -144,7 +138,7 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
         [...events].flatMap(([channel, values]) =>
           utils
             .chunkedBy(values, this.maxTelemetryPayloadSizeBytes, (payload) => payload.length)
-            .map((chunk) => new Chunk(channel, chunk, priority))
+            .map((chunk) => new Chunk(channel, chunk))
         )
       ),
       rx.concatAll(),
@@ -152,8 +146,8 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
       // send events to the telemetry server
       rx.concatMap((chunk: Chunk) =>
         retryOnError$(
-          this.retryCount,
-          this.retryDelayMillis,
+          this.retryConfig.retryCount,
+          this.retryConfig.retryDelayMillis,
           async () => await this.sendEvents(chunk.channel, chunk.payloads)
         )
       ),
@@ -166,7 +160,7 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
   }
 
   // here we should post the data to the telemetry server
-  private async sendEvents(channel: Channel, events: string[]): Promise<Result> {
+  private async sendEvents(channel: TelemetryChannel, events: string[]): Promise<Result> {
     try {
       const body = events.join('\n');
       return await axios
@@ -195,18 +189,16 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
 
 class Chunk {
   constructor(
-    public channel: Channel,
-    public payloads: string[],
-    public priority: Priority
-  ) { }
+    public channel: TelemetryChannel,
+    public payloads: string[]
+  ) {}
 }
 
 class Event {
   constructor(
-    public channel: Channel,
-    public payload: any,
-    public priority: Priority = Priority.LOW
-  ) { }
+    public channel: TelemetryChannel,
+    public payload: any
+  ) {}
 }
 
 type Result = Success | Failure;
@@ -214,14 +206,14 @@ type Result = Success | Failure;
 class Success {
   constructor(
     public readonly events: number,
-    public readonly channel: Channel
-  ) { }
+    public readonly channel: TelemetryChannel
+  ) {}
 }
 
 class Failure extends Error {
   constructor(
     public readonly reason: string,
-    public readonly channel: Channel,
+    public readonly channel: TelemetryChannel,
     public readonly events: number
   ) {
     super(`Unable to send ${events}: ${reason}`);
