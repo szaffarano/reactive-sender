@@ -19,14 +19,13 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
 
   private readonly events$ = new rx.Subject<Event>();
 
-  private readonly stop$ = new rx.Subject<void>();
   private readonly finished$ = new rx.Subject<void>();
   private cache: CachedSubject | undefined;
 
   public setup(config: TelemetryEventSenderConfig): void {
     this.retryConfig = config.retryConfig;
     this.queues = config.queues;
-    this.cache = new CachedSubject(this.events$, this.stop$);
+    this.cache = new CachedSubject(this.events$);
   }
 
   public start(): void {
@@ -67,7 +66,7 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
   public async stop(): Promise<void> {
     const finishPromise = rx.firstValueFrom(this.finished$);
     this.events$.complete();
-    this.stop$.next();
+    this.cache?.stop();
     await finishPromise;
   }
 
