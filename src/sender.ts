@@ -15,7 +15,7 @@ import { CachedSubject, retryOnError$ } from './rxjs.utils';
 
 export class TelemetryEventsSender implements ITelemetryEventsSender {
   private retryConfig: RetryConfig | undefined;
-  private queueConfigs: Map<TelemetryChannel, QueueConfig> | undefined;
+  private queues: Map<TelemetryChannel, QueueConfig> | undefined;
 
   private readonly events$ = new rx.Subject<Event>();
 
@@ -25,10 +25,7 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
 
   public setup(config: TelemetryEventSenderConfig): void {
     this.retryConfig = config.retryConfig;
-    this.queueConfigs = config.queueConfigs.reduce(
-      (acc, config) => acc.set(config.channel, config),
-      new Map<TelemetryChannel, QueueConfig>()
-    );
+    this.queues = config.queues;
     this.cache = new CachedSubject(this.events$, this.stop$);
   }
 
@@ -37,7 +34,7 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
     this.events$
       .pipe(
         rx.connect((shared$) => {
-          const queues$ = [...this.getQueueConfigs().keys()].map((channel) =>
+          const queues$ = [...this.getQueues().keys()].map((channel) =>
             this.queue$(shared$, channel)
           );
           return rx.merge(...queues$);
@@ -85,11 +82,11 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
   }
 
   public updateConfig(config: QueueConfig): void {
-    if (!this.getQueueConfigs().has(config.channel)) {
+    if (!this.getQueues().has(config.channel)) {
       throw new Error(`Channel "${config.channel}" was not configured`);
     }
 
-    this.getQueueConfigs().set(config.channel, config);
+    this.getQueues().set(config.channel, config);
   }
 
   private queue$(upstream$: rx.Observable<any>, channel: TelemetryChannel): rx.Observable<Chunk> {
@@ -184,13 +181,13 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
     }
   }
 
-  private getQueueConfigs(): Map<TelemetryChannel, QueueConfig> {
-    if (this.queueConfigs === undefined) throw new Error('Service not initialized');
-    return this.queueConfigs;
+  private getQueues(): Map<TelemetryChannel, QueueConfig> {
+    if (this.queues === undefined) throw new Error('Service not initialized');
+    return this.queues;
   }
 
   private getConfigFor(channel: TelemetryChannel): QueueConfig {
-    const config = this.queueConfigs?.get(channel);
+    const config = this.queues?.get(channel);
     if (config === undefined) throw new Error(`No queue config found for channel "${channel}"`);
     return config;
   }
@@ -201,7 +198,7 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
   }
 
   private existsQueueConfig(channel: TelemetryChannel): boolean {
-    return this.getQueueConfigs().has(channel);
+    return this.getQueues().has(channel);
   }
 }
 

@@ -10,7 +10,7 @@ export interface ITelemetryEventsSender {
 
 export interface TelemetryEventSenderConfig {
   retryConfig: RetryConfig;
-  queueConfigs: QueueConfig[];
+  queues: Map<TelemetryChannel, QueueConfig>;
 }
 
 export interface QueueConfig {

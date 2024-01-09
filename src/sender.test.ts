@@ -2,7 +2,7 @@ import axios from 'axios';
 
 import { cloneDeep } from 'lodash';
 import { TelemetryEventsSender } from './sender';
-import { type TelemetryEventSenderConfig } from './sender.types';
+import { type TelemetryEventSenderConfig, type QueueConfig } from './sender.types';
 import { TelemetryChannel } from './telemetry.types';
 
 jest.mock('axios');
@@ -14,26 +14,44 @@ const defaultServiceConfig: TelemetryEventSenderConfig = {
     retryCount: 3,
     retryDelayMillis: 100,
   },
-  queueConfigs: [
-    {
-      channel: TelemetryChannel.INSIGHTS,
-      bufferTimeSpanMillis: 100,
-      inflightEventsThreshold: 1000,
-      maxPayloadSizeBytes: 1024 * 1024 * 1024,
-    },
-    {
-      channel: TelemetryChannel.LISTS,
-      bufferTimeSpanMillis: 1000,
-      inflightEventsThreshold: 500,
-      maxPayloadSizeBytes: 1024 * 1024 * 1024,
-    },
-    {
-      channel: TelemetryChannel.DETECTION_ALERTS,
-      bufferTimeSpanMillis: 5000,
-      inflightEventsThreshold: 10,
-      maxPayloadSizeBytes: 1024 * 1024 * 1024,
-    },
-  ],
+  queues: new Map<TelemetryChannel, QueueConfig>([
+    [
+      TelemetryChannel.INSIGHTS,
+      {
+        channel: TelemetryChannel.INSIGHTS,
+        bufferTimeSpanMillis: 100,
+        inflightEventsThreshold: 1000,
+        maxPayloadSizeBytes: 1024 * 1024 * 1024,
+      },
+    ],
+    [
+      TelemetryChannel.LISTS,
+      {
+        channel: TelemetryChannel.LISTS,
+        bufferTimeSpanMillis: 1000,
+        inflightEventsThreshold: 500,
+        maxPayloadSizeBytes: 1024 * 1024 * 1024,
+      },
+    ],
+    [
+      TelemetryChannel.DETECTION_ALERTS,
+      {
+        channel: TelemetryChannel.DETECTION_ALERTS,
+        bufferTimeSpanMillis: 5000,
+        inflightEventsThreshold: 10,
+        maxPayloadSizeBytes: 1024 * 1024 * 1024,
+      },
+    ],
+  ]),
+};
+
+const getConfigFor = (
+  queues: Map<TelemetryChannel, QueueConfig>,
+  channel: TelemetryChannel
+): QueueConfig => {
+  const config = queues?.get(channel);
+  if (config === undefined) throw new Error(`No queue config found for channel "${channel}"`);
+  return config;
 };
 
 describe('services.TelemetryEventsSender', () => {
@@ -74,9 +92,11 @@ describe('services.TelemetryEventsSender', () => {
       const service = new TelemetryEventsSender();
 
       const config = cloneDeep(defaultServiceConfig);
-      config.queueConfigs[0].maxPayloadSizeBytes = 10;
-      config.queueConfigs[1].maxPayloadSizeBytes = 10;
-      config.queueConfigs[2].maxPayloadSizeBytes = 10;
+      const detectionsConfig = getConfigFor(config.queues, TelemetryChannel.DETECTION_ALERTS);
+      config.queues.set(TelemetryChannel.DETECTION_ALERTS, {
+        ...detectionsConfig,
+        maxPayloadSizeBytes: 10,
+      });
 
       service.setup(config);
       service.start();
@@ -102,9 +122,14 @@ describe('services.TelemetryEventsSender', () => {
     it('chunks events by size, even if one event is bigger than `maxTelemetryPayloadSizeBytes`', async () => {
       const service = new TelemetryEventsSender();
       const config = cloneDeep(defaultServiceConfig);
-      config.queueConfigs[0].maxPayloadSizeBytes = 3;
-      config.queueConfigs[1].maxPayloadSizeBytes = 3;
-      config.queueConfigs[2].maxPayloadSizeBytes = 3;
+      const detectionsConfig: QueueConfig = getConfigFor(
+        config.queues,
+        TelemetryChannel.DETECTION_ALERTS
+      );
+      config.queues.set(TelemetryChannel.DETECTION_ALERTS, {
+        ...detectionsConfig,
+        maxPayloadSizeBytes: 3,
+      });
       service.setup(config);
       service.start();
 
@@ -129,7 +154,8 @@ describe('services.TelemetryEventsSender', () => {
     it('buffer for a specific time period', async () => {
       const bufferTimeSpanMillis = 2000;
       const config = structuredClone(defaultServiceConfig);
-      config.queueConfigs[2].bufferTimeSpanMillis = bufferTimeSpanMillis;
+      getConfigFor(config.queues, TelemetryChannel.DETECTION_ALERTS).bufferTimeSpanMillis =
+        bufferTimeSpanMillis;
       const service = new TelemetryEventsSender();
 
       service.setup(config);
@@ -161,7 +187,8 @@ describe('services.TelemetryEventsSender', () => {
     it('retries when the backend fails', async () => {
       const bufferTimeSpanMillis = 3;
       const config = structuredClone(defaultServiceConfig);
-      config.queueConfigs[2].bufferTimeSpanMillis = bufferTimeSpanMillis;
+      getConfigFor(config.queues, TelemetryChannel.DETECTION_ALERTS).bufferTimeSpanMillis =
+        bufferTimeSpanMillis;
       const service = new TelemetryEventsSender();
 
       mockedAxiosPost
@@ -192,7 +219,8 @@ describe('services.TelemetryEventsSender', () => {
     it('retries runtime errors', async () => {
       const bufferTimeSpanMillis = 3;
       const config = structuredClone(defaultServiceConfig);
-      config.queueConfigs[2].bufferTimeSpanMillis = bufferTimeSpanMillis;
+      getConfigFor(config.queues, TelemetryChannel.DETECTION_ALERTS).bufferTimeSpanMillis =
+        bufferTimeSpanMillis;
       const service = new TelemetryEventsSender();
 
       mockedAxiosPost
@@ -237,7 +265,8 @@ describe('services.TelemetryEventsSender', () => {
 
       // advance time by more than the buffer time span
       await jest.advanceTimersByTimeAsync(
-        defaultServiceConfig.queueConfigs[2].bufferTimeSpanMillis * 1.2
+        getConfigFor(defaultServiceConfig.queues, TelemetryChannel.DETECTION_ALERTS)
+          .bufferTimeSpanMillis * 1.2
       );
 
       // check that the events are sent
@@ -259,8 +288,10 @@ describe('services.TelemetryEventsSender', () => {
       const inflightEventsThreshold = 3;
       const bufferTimeSpanMillis = 2000;
       const config = structuredClone(defaultServiceConfig);
-      config.queueConfigs[2].bufferTimeSpanMillis = bufferTimeSpanMillis;
-      config.queueConfigs[2].inflightEventsThreshold = inflightEventsThreshold;
+      getConfigFor(config.queues, TelemetryChannel.DETECTION_ALERTS).bufferTimeSpanMillis =
+        bufferTimeSpanMillis;
+      getConfigFor(config.queues, TelemetryChannel.DETECTION_ALERTS).inflightEventsThreshold =
+        inflightEventsThreshold;
       const service = new TelemetryEventsSender();
 
       service.setup(config);
@@ -294,8 +325,10 @@ describe('services.TelemetryEventsSender', () => {
       const inflightEventsThreshold = 3;
       const bufferTimeSpanMillis = 2000;
       const config = structuredClone(defaultServiceConfig);
-      config.queueConfigs[2].inflightEventsThreshold = inflightEventsThreshold;
-      config.queueConfigs[2].bufferTimeSpanMillis = bufferTimeSpanMillis;
+      getConfigFor(config.queues, TelemetryChannel.DETECTION_ALERTS).inflightEventsThreshold =
+        inflightEventsThreshold;
+      getConfigFor(config.queues, TelemetryChannel.DETECTION_ALERTS).bufferTimeSpanMillis =
+        bufferTimeSpanMillis;
       const service = new TelemetryEventsSender();
 
       service.setup(config);
@@ -347,7 +380,7 @@ describe('services.TelemetryEventsSender', () => {
 
       // wait less than low priority latency
       await jest.advanceTimersByTimeAsync(
-        defaultServiceConfig.queueConfigs[1].bufferTimeSpanMillis
+        getConfigFor(defaultServiceConfig.queues, TelemetryChannel.LISTS).bufferTimeSpanMillis
       );
 
       // send more low-priority events
@@ -361,7 +394,7 @@ describe('services.TelemetryEventsSender', () => {
 
       // wait a little bit, just the high priority queue latency
       await jest.advanceTimersByTimeAsync(
-        defaultServiceConfig.queueConfigs[0].bufferTimeSpanMillis
+        getConfigFor(defaultServiceConfig.queues, TelemetryChannel.INSIGHTS).bufferTimeSpanMillis
       );
 
       // only high priority events should have been sent
@@ -375,7 +408,7 @@ describe('services.TelemetryEventsSender', () => {
 
       // wait just the medium priority queue latency
       await jest.advanceTimersByTimeAsync(
-        defaultServiceConfig.queueConfigs[1].bufferTimeSpanMillis
+        getConfigFor(defaultServiceConfig.queues, TelemetryChannel.LISTS).bufferTimeSpanMillis
       );
 
       // only medium priority events should have been sent
@@ -389,7 +422,8 @@ describe('services.TelemetryEventsSender', () => {
 
       // wait more time
       await jest.advanceTimersByTimeAsync(
-        defaultServiceConfig.queueConfigs[2].bufferTimeSpanMillis
+        getConfigFor(defaultServiceConfig.queues, TelemetryChannel.DETECTION_ALERTS)
+          .bufferTimeSpanMillis
       );
 
       // all events should have been sent
@@ -417,7 +451,7 @@ describe('services.TelemetryEventsSender', () => {
 
       service.send(TelemetryChannel.DETECTION_ALERTS, lowEvents.slice(0, 2));
       await jest.advanceTimersByTimeAsync(
-        defaultServiceConfig.queueConfigs[1].bufferTimeSpanMillis
+        getConfigFor(defaultServiceConfig.queues, TelemetryChannel.LISTS).bufferTimeSpanMillis
       );
 
       expect(mockedAxiosPost).toHaveBeenCalledTimes(0);
@@ -425,7 +459,7 @@ describe('services.TelemetryEventsSender', () => {
       service.send(TelemetryChannel.DETECTION_ALERTS, lowEvents.slice(0, 2));
       service.send(TelemetryChannel.LISTS, mediumEvents);
       await jest.advanceTimersByTimeAsync(
-        defaultServiceConfig.queueConfigs[1].bufferTimeSpanMillis
+        getConfigFor(defaultServiceConfig.queues, TelemetryChannel.LISTS).bufferTimeSpanMillis
       );
 
       expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
@@ -499,7 +533,7 @@ describe('services.TelemetryEventsSender', () => {
       service.setup(defaultServiceConfig);
       service.start();
 
-      const queueConfig = cloneDeep(defaultServiceConfig.queueConfigs[0]);
+      const queueConfig = getConfigFor(defaultServiceConfig.queues, TelemetryChannel.INSIGHTS);
       const initialDelay = queueConfig.bufferTimeSpanMillis * 1.2;
 
       service.send(queueConfig.channel, ['a', 'b', 'c']);
@@ -549,7 +583,7 @@ describe('services.TelemetryEventsSender', () => {
       const service = new TelemetryEventsSender();
 
       const config = cloneDeep(defaultServiceConfig);
-      const queueConfig = config.queueConfigs[0];
+      const queueConfig = getConfigFor(config.queues, TelemetryChannel.LISTS);
 
       queueConfig.maxPayloadSizeBytes = 10;
 

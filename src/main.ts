@@ -1,5 +1,9 @@
 import { TelemetryEventsSender } from './sender';
-import { type ITelemetryEventsSender, type TelemetryEventSenderConfig } from './sender.types';
+import {
+  type ITelemetryEventsSender,
+  type TelemetryEventSenderConfig,
+  type QueueConfig,
+} from './sender.types';
 import { TelemetryChannel } from './telemetry.types';
 import { logger } from './logger';
 import { sleep } from './utils';
@@ -14,26 +18,35 @@ const main = async (): Promise<void> => {
       retryCount: 3,
       retryDelayMillis: 100,
     },
-    queueConfigs: [
-      {
-        channel: TelemetryChannel.INSIGHTS,
-        bufferTimeSpanMillis: 500,
-        inflightEventsThreshold: 500,
-        maxPayloadSizeBytes: 1024 * 1024 * 1024,
-      },
-      {
-        channel: TelemetryChannel.LISTS,
-        bufferTimeSpanMillis: 2500,
-        inflightEventsThreshold: 750,
-        maxPayloadSizeBytes: 1024 * 1024 * 1024,
-      },
-      {
-        channel: TelemetryChannel.DETECTION_ALERTS,
-        bufferTimeSpanMillis: 3000,
-        inflightEventsThreshold: 1500,
-        maxPayloadSizeBytes: 1024 * 1024 * 1024,
-      },
-    ],
+    queues: new Map<TelemetryChannel, QueueConfig>([
+      [
+        TelemetryChannel.INSIGHTS,
+        {
+          channel: TelemetryChannel.INSIGHTS,
+          bufferTimeSpanMillis: 500,
+          inflightEventsThreshold: 500,
+          maxPayloadSizeBytes: 1024 * 1024 * 1024,
+        },
+      ],
+      [
+        TelemetryChannel.LISTS,
+        {
+          channel: TelemetryChannel.LISTS,
+          bufferTimeSpanMillis: 2500,
+          inflightEventsThreshold: 750,
+          maxPayloadSizeBytes: 1024 * 1024 * 1024,
+        },
+      ],
+      [
+        TelemetryChannel.DETECTION_ALERTS,
+        {
+          channel: TelemetryChannel.DETECTION_ALERTS,
+          bufferTimeSpanMillis: 3000,
+          inflightEventsThreshold: 1500,
+          maxPayloadSizeBytes: 1024 * 1024 * 1024,
+        },
+      ],
+    ]),
   };
 
   service.setup(config);
