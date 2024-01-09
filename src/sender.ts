@@ -22,13 +22,21 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
   private readonly finished$ = new rx.Subject<void>();
   private cache: CachedSubject | undefined;
 
+  private status: ServiceStatus = ServiceStatus.CREATED;
+
   public setup(config: TelemetryEventSenderConfig): void {
+    this.ensureStatus(ServiceStatus.CREATED);
+
     this.retryConfig = config.retryConfig;
     this.queues = config.queues;
     this.cache = new CachedSubject(this.events$);
+
+    this.updateStatus(ServiceStatus.CONFIGURED);
   }
 
   public start(): void {
+    this.ensureStatus(ServiceStatus.CONFIGURED);
+
     this.cache?.stop();
     this.events$
       .pipe(
@@ -61,16 +69,23 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
       });
 
     this.cache?.flush();
+    this.updateStatus(ServiceStatus.STARTED);
   }
 
   public async stop(): Promise<void> {
+    this.ensureStatus(ServiceStatus.STARTED);
+
     const finishPromise = rx.firstValueFrom(this.finished$);
     this.events$.complete();
     this.cache?.stop();
     await finishPromise;
+
+    this.updateStatus(ServiceStatus.CONFIGURED);
   }
 
   public send(channel: TelemetryChannel, events: any[]): void {
+    this.ensureStatus(ServiceStatus.CONFIGURED, ServiceStatus.STARTED);
+
     if (!this.existsQueueConfig(channel)) {
       throw new Error(`No queue config found for channel "${channel}"`);
     }
@@ -198,6 +213,16 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
   private existsQueueConfig(channel: TelemetryChannel): boolean {
     return this.getQueues().has(channel);
   }
+
+  private ensureStatus(...expected: ServiceStatus[]): void {
+    if (!expected.includes(this.status)) {
+      throw new Error(`${this.status}: invalid status. Expected one of [${expected.join(',')}]`);
+    }
+  }
+
+  private updateStatus(newStatus: ServiceStatus): void {
+    this.status = newStatus;
+  }
 }
 
 class Chunk {
@@ -231,4 +256,10 @@ class Failure extends Error {
   ) {
     super(`Unable to send ${events}: ${reason}`);
   }
+}
+
+export enum ServiceStatus {
+  CREATED = 'CREATED',
+  CONFIGURED = 'CONFIGURED',
+  STARTED = 'STARTED',
 }

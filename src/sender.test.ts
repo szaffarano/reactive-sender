@@ -82,6 +82,32 @@ describe('services.TelemetryEventsSender', () => {
         expect.anything()
       );
     });
+
+    it('should not start without being configured', () => {
+      const service = new TelemetryEventsSender();
+
+      expect(() => {
+        service.start();
+      }).toThrow('CREATED: invalid status. Expected one of [CONFIGURED]');
+    });
+
+    it('should not start twice', () => {
+      const service = new TelemetryEventsSender();
+      service.setup(defaultServiceConfig);
+      service.start();
+
+      expect(() => {
+        service.start();
+      }).toThrow('STARTED: invalid status. Expected one of [CONFIGURED]');
+    });
+
+    it('should not send events if the servise is not configured', () => {
+      const service = new TelemetryEventsSender();
+
+      expect(() => {
+        service.send(TelemetryChannel.LISTS, ['hello']);
+      }).toThrow('CREATED: invalid status. Expected one of [CONFIGURED,STARTED]');
+    });
   });
 
   describe('simple use cases', () => {
