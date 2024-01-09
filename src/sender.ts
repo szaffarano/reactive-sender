@@ -80,12 +80,12 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
     });
   }
 
-  public updateConfig(config: QueueConfig): void {
-    if (!this.getQueues().has(config.channel)) {
-      throw new Error(`Channel "${config.channel}" was not configured`);
+  public updateConfig(channel: TelemetryChannel, config: QueueConfig): void {
+    if (!this.getQueues().has(channel)) {
+      throw new Error(`Channel "${channel}" was not configured`);
     }
 
-    this.getQueues().set(config.channel, config);
+    this.getQueues().set(channel, config);
   }
 
   private queue$(upstream$: rx.Observable<any>, channel: TelemetryChannel): rx.Observable<Chunk> {
@@ -153,7 +153,6 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
     ) as rx.Observable<Chunk>;
   }
 
-  // here we should post the data to the telemetry server
   private async sendEvents(channel: TelemetryChannel, events: string[]): Promise<Result> {
     try {
       const body = events.join('\n');

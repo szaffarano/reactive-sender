@@ -5,7 +5,7 @@ export interface ITelemetryEventsSender {
   start: () => void;
   stop: () => Promise<void>;
   send: (channel: TelemetryChannel, events: any[]) => void;
-  updateConfig: (config: QueueConfig) => void;
+  updateConfig: (channel: TelemetryChannel, config: QueueConfig) => void;
 }
 
 export interface TelemetryEventSenderConfig {
@@ -14,7 +14,6 @@ export interface TelemetryEventSenderConfig {
 }
 
 export interface QueueConfig {
-  channel: TelemetryChannel;
   bufferTimeSpanMillis: number;
   inflightEventsThreshold: number;
   maxPayloadSizeBytes: number;

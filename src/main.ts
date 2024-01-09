@@ -22,7 +22,6 @@ const main = async (): Promise<void> => {
       [
         TelemetryChannel.INSIGHTS,
         {
-          channel: TelemetryChannel.INSIGHTS,
           bufferTimeSpanMillis: 500,
           inflightEventsThreshold: 500,
           maxPayloadSizeBytes: 1024 * 1024 * 1024,
@@ -31,7 +30,6 @@ const main = async (): Promise<void> => {
       [
         TelemetryChannel.LISTS,
         {
-          channel: TelemetryChannel.LISTS,
           bufferTimeSpanMillis: 2500,
           inflightEventsThreshold: 750,
           maxPayloadSizeBytes: 1024 * 1024 * 1024,
@@ -40,7 +38,6 @@ const main = async (): Promise<void> => {
       [
         TelemetryChannel.DETECTION_ALERTS,
         {
-          channel: TelemetryChannel.DETECTION_ALERTS,
           bufferTimeSpanMillis: 3000,
           inflightEventsThreshold: 1500,
           maxPayloadSizeBytes: 1024 * 1024 * 1024,

@@ -18,7 +18,6 @@ const defaultServiceConfig: TelemetryEventSenderConfig = {
     [
       TelemetryChannel.INSIGHTS,
       {
-        channel: TelemetryChannel.INSIGHTS,
         bufferTimeSpanMillis: 100,
         inflightEventsThreshold: 1000,
         maxPayloadSizeBytes: 1024 * 1024 * 1024,
@@ -27,7 +26,6 @@ const defaultServiceConfig: TelemetryEventSenderConfig = {
     [
       TelemetryChannel.LISTS,
       {
-        channel: TelemetryChannel.LISTS,
         bufferTimeSpanMillis: 1000,
         inflightEventsThreshold: 500,
         maxPayloadSizeBytes: 1024 * 1024 * 1024,
@@ -36,7 +34,6 @@ const defaultServiceConfig: TelemetryEventSenderConfig = {
     [
       TelemetryChannel.DETECTION_ALERTS,
       {
-        channel: TelemetryChannel.DETECTION_ALERTS,
         bufferTimeSpanMillis: 5000,
         inflightEventsThreshold: 10,
         maxPayloadSizeBytes: 1024 * 1024 * 1024,
@@ -536,7 +533,7 @@ describe('services.TelemetryEventsSender', () => {
       const queueConfig = getConfigFor(defaultServiceConfig.queues, TelemetryChannel.INSIGHTS);
       const initialDelay = queueConfig.bufferTimeSpanMillis * 1.2;
 
-      service.send(queueConfig.channel, ['a', 'b', 'c']);
+      service.send(TelemetryChannel.INSIGHTS, ['a', 'b', 'c']);
       const expectedBodies = ['"a"\n"b"\n"c"'];
 
       await jest.advanceTimersByTimeAsync(initialDelay);
@@ -552,13 +549,13 @@ describe('services.TelemetryEventsSender', () => {
       });
 
       queueConfig.bufferTimeSpanMillis *= 3;
-      service.updateConfig(queueConfig);
+      service.updateConfig(TelemetryChannel.INSIGHTS, queueConfig);
 
       // wait until the current buffer time expires
       await jest.advanceTimersByTimeAsync(initialDelay * 1.2);
       expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
 
-      service.send(queueConfig.channel, ['a', 'b', 'c']);
+      service.send(TelemetryChannel.INSIGHTS, ['a', 'b', 'c']);
       // same buffer time shouldn't trigger a new buffer (we increased the buffer time)
       await jest.advanceTimersByTimeAsync(initialDelay);
       expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
@@ -590,7 +587,7 @@ describe('services.TelemetryEventsSender', () => {
       service.setup(config);
       service.start();
 
-      service.send(queueConfig.channel, ['aaaaa', 'b', 'c']);
+      service.send(TelemetryChannel.LISTS, ['aaaaa', 'b', 'c']);
       let expectedBodies = ['"aaaaa"\n"b"', '"c"'];
 
       await jest.advanceTimersByTimeAsync(queueConfig.bufferTimeSpanMillis * 1.2);
@@ -606,9 +603,9 @@ describe('services.TelemetryEventsSender', () => {
       });
 
       queueConfig.maxPayloadSizeBytes = 100;
-      service.updateConfig(queueConfig);
+      service.updateConfig(TelemetryChannel.LISTS, queueConfig);
 
-      service.send(queueConfig.channel, ['aaaaa', 'b', 'c']);
+      service.send(TelemetryChannel.LISTS, ['aaaaa', 'b', 'c']);
       expectedBodies = ['"aaaaa"\n"b"\n"c"'];
 
       await jest.advanceTimersByTimeAsync(queueConfig.bufferTimeSpanMillis * 1.2);
