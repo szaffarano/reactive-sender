@@ -1,5 +1,6 @@
 import axios from 'axios';
 
+import { cloneDeep } from 'lodash';
 import { TelemetryEventsSender } from './sender';
 import { type TelemetryEventSenderConfig } from './sender.types';
 import { TelemetryChannel } from './telemetry.types';
@@ -9,7 +10,6 @@ jest.mock('axios');
 const mockedAxiosPost = jest.spyOn(axios, 'post');
 
 const defaultServiceConfig: TelemetryEventSenderConfig = {
-  maxPayloadSizeBytes: 1024 * 1024 * 1024,
   retryConfig: {
     retryCount: 3,
     retryDelayMillis: 100,
@@ -19,16 +19,19 @@ const defaultServiceConfig: TelemetryEventSenderConfig = {
       channel: TelemetryChannel.INSIGHTS,
       bufferTimeSpanMillis: 100,
       inflightEventsThreshold: 1000,
+      maxPayloadSizeBytes: 1024 * 1024 * 1024,
     },
     {
       channel: TelemetryChannel.LISTS,
       bufferTimeSpanMillis: 1000,
       inflightEventsThreshold: 500,
+      maxPayloadSizeBytes: 1024 * 1024 * 1024,
     },
     {
       channel: TelemetryChannel.DETECTION_ALERTS,
       bufferTimeSpanMillis: 5000,
       inflightEventsThreshold: 10,
+      maxPayloadSizeBytes: 1024 * 1024 * 1024,
     },
   ],
 };
@@ -70,10 +73,12 @@ describe('services.TelemetryEventsSender', () => {
     it('chunks events by size', async () => {
       const service = new TelemetryEventsSender();
 
-      service.setup({
-        ...defaultServiceConfig,
-        maxPayloadSizeBytes: 10,
-      });
+      const config = cloneDeep(defaultServiceConfig);
+      config.queueConfigs[0].maxPayloadSizeBytes = 10;
+      config.queueConfigs[1].maxPayloadSizeBytes = 10;
+      config.queueConfigs[2].maxPayloadSizeBytes = 10;
+
+      service.setup(config);
       service.start();
 
       // at most 10 bytes per payload (after serialized to JSON): it should send
@@ -96,10 +101,11 @@ describe('services.TelemetryEventsSender', () => {
 
     it('chunks events by size, even if one event is bigger than `maxTelemetryPayloadSizeBytes`', async () => {
       const service = new TelemetryEventsSender();
-      service.setup({
-        ...defaultServiceConfig,
-        maxPayloadSizeBytes: 3,
-      });
+      const config = cloneDeep(defaultServiceConfig);
+      config.queueConfigs[0].maxPayloadSizeBytes = 3;
+      config.queueConfigs[1].maxPayloadSizeBytes = 3;
+      config.queueConfigs[2].maxPayloadSizeBytes = 3;
+      service.setup(config);
       service.start();
 
       // at most 10 bytes per payload (after serialized to JSON): it should
@@ -483,6 +489,107 @@ describe('services.TelemetryEventsSender', () => {
 
       await service.stop();
       expect(mockedAxiosPost).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('dynamic configuration', () => {
+    it('should update buffer time config dinamically', async () => {
+      const service = new TelemetryEventsSender();
+
+      service.setup(defaultServiceConfig);
+      service.start();
+
+      const queueConfig = cloneDeep(defaultServiceConfig.queueConfigs[0]);
+      const initialDelay = queueConfig.bufferTimeSpanMillis * 1.2;
+
+      service.send(queueConfig.channel, ['a', 'b', 'c']);
+      const expectedBodies = ['"a"\n"b"\n"c"'];
+
+      await jest.advanceTimersByTimeAsync(initialDelay);
+
+      expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
+
+      expectedBodies.forEach((expectedBody) => {
+        expect(mockedAxiosPost).toHaveBeenCalledWith(
+          expect.anything(),
+          expectedBody,
+          expect.anything()
+        );
+      });
+
+      queueConfig.bufferTimeSpanMillis *= 3;
+      service.updateConfig(queueConfig);
+
+      // wait until the current buffer time expires
+      await jest.advanceTimersByTimeAsync(initialDelay * 1.2);
+      expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
+
+      service.send(queueConfig.channel, ['a', 'b', 'c']);
+      // same buffer time shouldn't trigger a new buffer (we increased the buffer time)
+      await jest.advanceTimersByTimeAsync(initialDelay);
+      expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
+
+      // wait more time...
+      await jest.advanceTimersByTimeAsync(queueConfig.bufferTimeSpanMillis);
+      expect(mockedAxiosPost).toHaveBeenCalledTimes(2);
+
+      expectedBodies.forEach((expectedBody) => {
+        expect(mockedAxiosPost).toHaveBeenCalledWith(
+          expect.anything(),
+          expectedBody,
+          expect.anything()
+        );
+      });
+
+      await service.stop();
+      expect(mockedAxiosPost).toHaveBeenCalledTimes(2);
+    });
+
+    it('should update max payload size dinamically', async () => {
+      const service = new TelemetryEventsSender();
+
+      const config = cloneDeep(defaultServiceConfig);
+      const queueConfig = config.queueConfigs[0];
+
+      queueConfig.maxPayloadSizeBytes = 10;
+
+      service.setup(config);
+      service.start();
+
+      service.send(queueConfig.channel, ['aaaaa', 'b', 'c']);
+      let expectedBodies = ['"aaaaa"\n"b"', '"c"'];
+
+      await jest.advanceTimersByTimeAsync(queueConfig.bufferTimeSpanMillis * 1.2);
+
+      expect(mockedAxiosPost).toHaveBeenCalledTimes(2);
+
+      expectedBodies.forEach((expectedBody) => {
+        expect(mockedAxiosPost).toHaveBeenCalledWith(
+          expect.anything(),
+          expectedBody,
+          expect.anything()
+        );
+      });
+
+      queueConfig.maxPayloadSizeBytes = 100;
+      service.updateConfig(queueConfig);
+
+      service.send(queueConfig.channel, ['aaaaa', 'b', 'c']);
+      expectedBodies = ['"aaaaa"\n"b"\n"c"'];
+
+      await jest.advanceTimersByTimeAsync(queueConfig.bufferTimeSpanMillis * 1.2);
+
+      expect(mockedAxiosPost).toHaveBeenCalledTimes(3);
+
+      expectedBodies.forEach((expectedBody) => {
+        expect(mockedAxiosPost).toHaveBeenCalledWith(
+          expect.anything(),
+          expectedBody,
+          expect.anything()
+        );
+      });
+
+      await service.stop();
     });
   });
 });

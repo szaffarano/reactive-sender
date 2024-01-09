@@ -5,10 +5,10 @@ export interface ITelemetryEventsSender {
   start: () => void;
   stop: () => Promise<void>;
   send: (channel: TelemetryChannel, events: any[]) => void;
+  updateConfig: (config: QueueConfig) => void;
 }
 
 export interface TelemetryEventSenderConfig {
-  maxPayloadSizeBytes: number;
   retryConfig: RetryConfig;
   queueConfigs: QueueConfig[];
 }
@@ -17,6 +17,7 @@ export interface QueueConfig {
   channel: TelemetryChannel;
   bufferTimeSpanMillis: number;
   inflightEventsThreshold: number;
+  maxPayloadSizeBytes: number;
 }
 
 export interface RetryConfig {

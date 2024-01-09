@@ -10,7 +10,6 @@ const main = async (): Promise<void> => {
   const service: ITelemetryEventsSender = new TelemetryEventsSender();
 
   const config: TelemetryEventSenderConfig = {
-    maxPayloadSizeBytes: 1024 * 1024 * 1024,
     retryConfig: {
       retryCount: 3,
       retryDelayMillis: 100,
@@ -20,16 +19,19 @@ const main = async (): Promise<void> => {
         channel: TelemetryChannel.INSIGHTS,
         bufferTimeSpanMillis: 500,
         inflightEventsThreshold: 500,
+        maxPayloadSizeBytes: 1024 * 1024 * 1024,
       },
       {
         channel: TelemetryChannel.LISTS,
         bufferTimeSpanMillis: 2500,
         inflightEventsThreshold: 750,
+        maxPayloadSizeBytes: 1024 * 1024 * 1024,
       },
       {
         channel: TelemetryChannel.DETECTION_ALERTS,
         bufferTimeSpanMillis: 3000,
         inflightEventsThreshold: 1500,
+        maxPayloadSizeBytes: 1024 * 1024 * 1024,
       },
     ],
   };

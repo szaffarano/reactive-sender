@@ -14,9 +14,8 @@ import * as utils from './utils';
 import { CachedSubject, retryOnError$ } from './rxjs.utils';
 
 export class TelemetryEventsSender implements ITelemetryEventsSender {
-  private maxTelemetryPayloadSizeBytes: number | undefined;
   private retryConfig: RetryConfig | undefined;
-  private queueConfigs: QueueConfig[] | undefined;
+  private queueConfigs: Map<TelemetryChannel, QueueConfig> | undefined;
 
   private readonly events$ = new rx.Subject<Event>();
 
@@ -25,19 +24,22 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
   private cache: CachedSubject | undefined;
 
   public setup(config: TelemetryEventSenderConfig): void {
-    this.maxTelemetryPayloadSizeBytes = config.maxPayloadSizeBytes;
     this.retryConfig = config.retryConfig;
-    this.queueConfigs = config.queueConfigs;
+    this.queueConfigs = config.queueConfigs.reduce(
+      (acc, config) => acc.set(config.channel, config),
+      new Map<TelemetryChannel, QueueConfig>()
+    );
     this.cache = new CachedSubject(this.events$, this.stop$);
   }
 
   public start(): void {
     this.cache?.stop();
-
     this.events$
       .pipe(
         rx.connect((shared$) => {
-          const queues$ = this.getQueueConfigs().map((config) => this.queue$(shared$, config));
+          const queues$ = [...this.getQueueConfigs().keys()].map((channel) =>
+            this.queue$(shared$, channel)
+          );
           return rx.merge(...queues$);
         })
       )
@@ -82,24 +84,32 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
     });
   }
 
-  private queue$(upstream$: rx.Observable<any>, config: QueueConfig): rx.Observable<Chunk> {
+  public updateConfig(config: QueueConfig): void {
+    if (!this.getQueueConfigs().has(config.channel)) {
+      throw new Error(`Channel "${config.channel}" was not configured`);
+    }
+
+    this.getQueueConfigs().set(config.channel, config);
+  }
+
+  private queue$(upstream$: rx.Observable<any>, channel: TelemetryChannel): rx.Observable<Chunk> {
     let inflightEventsCounter: number = 0;
     const inflightEvents$: rx.Subject<number> = new rx.Subject<number>();
 
     inflightEvents$.subscribe((value) => (inflightEventsCounter += value));
 
     return upstream$.pipe(
-      // only take events with the expected priority
-      rx.filter((event) => event.channel === config.channel),
+      // only take events for the configured channel
+      rx.filter((event) => event.channel === channel),
 
       rx.switchMap((event) => {
-        if (inflightEventsCounter < config.inflightEventsThreshold) {
+        if (inflightEventsCounter < this.getConfigFor(channel).inflightEventsThreshold) {
           return rx.of(event);
         }
         logger.info(
           '>> Dropping event %s (channel: %s, inflightEventsCounter: %s)',
           event,
-          config.channel,
+          channel,
           inflightEventsCounter
         );
         return rx.EMPTY;
@@ -111,7 +121,7 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
       }),
 
       // buffer events for a given time ...
-      rx.bufferWhen(() => rx.interval(config.bufferTimeSpanMillis)),
+      rx.bufferWhen(() => rx.interval(this.getConfigFor(channel).bufferTimeSpanMillis)),
 
       // ... and exclude empty buffers
       rx.filter((n: Event[]) => n.length > 0),
@@ -122,8 +132,12 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
       // chunk by size
       rx.map((values) =>
         utils
-          .chunkedBy(values, this.getMaxTelemetryPayloadSizeBytes(), (payload) => payload.length)
-          .map((chunk) => new Chunk(config.channel, chunk))
+          .chunkedBy(
+            values,
+            this.getConfigFor(channel).maxPayloadSizeBytes,
+            (payload) => payload.length
+          )
+          .map((chunk) => new Chunk(channel, chunk))
       ),
       rx.concatAll(),
 
@@ -132,7 +146,7 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
         retryOnError$(
           this.getRetryConfig().retryCount,
           this.getRetryConfig().retryDelayMillis,
-          async () => await this.sendEvents(config.channel, chunk.payloads)
+          async () => await this.sendEvents(channel, chunk.payloads)
         )
       ),
 
@@ -170,9 +184,15 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
     }
   }
 
-  private getQueueConfigs(): QueueConfig[] {
+  private getQueueConfigs(): Map<TelemetryChannel, QueueConfig> {
     if (this.queueConfigs === undefined) throw new Error('Service not initialized');
     return this.queueConfigs;
+  }
+
+  private getConfigFor(channel: TelemetryChannel): QueueConfig {
+    const config = this.queueConfigs?.get(channel);
+    if (config === undefined) throw new Error(`No queue config found for channel "${channel}"`);
+    return config;
   }
 
   private getRetryConfig(): RetryConfig {
@@ -180,13 +200,8 @@ export class TelemetryEventsSender implements ITelemetryEventsSender {
     return this.retryConfig;
   }
 
-  private getMaxTelemetryPayloadSizeBytes(): number {
-    if (this.maxTelemetryPayloadSizeBytes === undefined) throw new Error('Service not initialized');
-    return this.maxTelemetryPayloadSizeBytes;
-  }
-
   private existsQueueConfig(channel: TelemetryChannel): boolean {
-    return this.getQueueConfigs().some((config) => config.channel === channel);
+    return this.getQueueConfigs().has(channel);
   }
 }
 
@@ -194,14 +209,14 @@ class Chunk {
   constructor(
     public channel: TelemetryChannel,
     public payloads: string[]
-  ) { }
+  ) {}
 }
 
 class Event {
   constructor(
     public channel: TelemetryChannel,
     public payload: any
-  ) { }
+  ) {}
 }
 
 type Result = Success | Failure;
@@ -210,7 +225,7 @@ class Success {
   constructor(
     public readonly events: number,
     public readonly channel: TelemetryChannel
-  ) { }
+  ) {}
 }
 
 class Failure extends Error {
